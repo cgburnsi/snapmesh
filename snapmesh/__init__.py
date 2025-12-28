@@ -2,10 +2,8 @@
 
 __version__ = "0.1.0"
 
-__version__ = "0.1.0"
-
 # Import the Mesh class from the submodule
 from .mesh import Mesh
+from .geometry import Arc, Circle, Line, CompositeCurve, CubicCurve, Polygon, RegularPolygon
 
-# Create the alias so 'sm.mesh()' works
-mesh = Mesh
+
