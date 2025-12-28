@@ -1,0 +1,25 @@
+# --- Spyder Project Files ---
+.spyproject/
+.spyderproject
+
+# --- Python Build & Runtime ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+
+# --- Virtual Environments ---
+venv/
+env/
+.env
+
+# --- OS Junk Files ---
+.DS_Store
+Thumbs.db
+
+# --- Other IDEs (Just in case) ---
+.vscode/
+.idea/
