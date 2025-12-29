@@ -53,7 +53,7 @@ def create_structured_nozzle():
 
     # Generate Mesh (60 streamwise x 15 radial)
     print("  -> Generating structured mesh...")
-    mesh = generate_structured_mesh(bottom_curve, top_curve, left_curve, right_curve, ni=60, nj=15)
+    mesh = generate_structured_mesh(bottom_curve, top_curve, left_curve, right_curve, ni=120, nj=30)
     
     # ... inside create_structured_nozzle ...
     
