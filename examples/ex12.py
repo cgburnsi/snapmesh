@@ -22,7 +22,7 @@ def run_solver():
     print("--- Starting Time Marching ---")
     while current_time < target_time:
         # A. Calculate dt
-        dt = solver.compute_time_step(cfl=0.4) # Conservative CFL start
+        dt = solver.compute_time_step(cfl=0.25) # Conservative CFL start
         
         # Don't overshoot target time
         if current_time + dt > target_time:

@@ -74,9 +74,9 @@ def setup_simulation():
     
     # 4. Set Initial Conditions
     # Standard Sea Level Inlet -> Vacuum Exit
-    p_inlet = cv.convert(100, 'psi', 'Pa') 
-    p_exit  = 50000.0   # Pa (Vacuum downstream)
-    T_total = 300.0     # K
+    p_inlet = cv.convert(70, 'psi', 'Pa') 
+    p_exit  = cv.convert(14.7, 'psi', 'Pa')
+    T_total = cv.convert(80, 'degF', 'K')
     
     # Linear ramp based on x-coordinate
     x = grid.cell_centers_x
