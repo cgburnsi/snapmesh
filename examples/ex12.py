@@ -15,14 +15,14 @@ def run_solver():
     solver = fvm_solver.EulerSolver(grid, field)
     
     # 3. Time Loop
-    target_time = 0.01 # Run Time
+    target_time = 0.003 # Run Time
     current_time = 0.0
     iteration = 0
     
     print("--- Starting Time Marching ---")
     while current_time < target_time:
         # A. Calculate dt
-        dt = solver.compute_time_step(cfl=0.25) # Conservative CFL start
+        dt = solver.compute_time_step(cfl=0.3) # Conservative CFL start
         
         # Don't overshoot target time
         if current_time + dt > target_time:

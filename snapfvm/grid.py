@@ -82,49 +82,68 @@ class UnstructuredGrid:
         self.num_faces = num_raw_faces
 
     def _calculate_geometric_properties(self):
-        # (Same as before - Metrics logic remains unchanged)
-        # Copy-paste the previous implementation of _calculate_geometric_properties here
+        # ... (Keep existing setup code for n1, n2, x1, y1 etc.) ...
         n1 = self.face_nodes[:, 0]
         n2 = self.face_nodes[:, 1]
         x1, y1 = self.nodes_x[n1], self.nodes_y[n1]
         x2, y2 = self.nodes_x[n2], self.nodes_y[n2]
-
+        
+        # 1. Face Centers
         self.face_centers_x = 0.5 * (x1 + x2)
         self.face_centers_y = 0.5 * (y1 + y2)
 
+        # 2. Raw 2D Area (Length)
         dx = x2 - x1
         dy = y2 - y1
-        self.face_areas = np.sqrt(dx**2 + dy**2)
+        length_2d = np.sqrt(dx**2 + dy**2)
+        
+        # --- AXISYMMETRIC MODIFICATION ---
+        # Face Area = Length * 2 * pi * Radius_Face
+        # We assume the axis of revolution is y=0
+        radius_face = np.abs(self.face_centers_y)
+        # Avoid zero radius at centerline to prevent zero area
+        radius_face = np.maximum(radius_face, 1e-6)
+        
+        self.face_areas = length_2d * 2.0 * np.pi * radius_face 
+        # ---------------------------------
 
-        inv_mag = 1.0 / (self.face_areas + 1e-12)
+        # 3. Normals (Same as before)
+        inv_mag = 1.0 / (length_2d + 1e-12) # Note: Normalize by LENGTH, not Area
         nx = dy * inv_mag
         ny = -dx * inv_mag
-
+        
+        # Orientation check (Same as before)
         owners = self.face_owner
         ox = self.cell_centers_x[owners]
         oy = self.cell_centers_y[owners]
-        
-        d_x = self.face_centers_x - ox
-        d_y = self.face_centers_y - oy
-        
-        dot = d_x * nx + d_y * ny
+        dot = (self.face_centers_x - ox) * nx + (self.face_centers_y - oy) * ny
         flip_mask = dot < 0
         nx[flip_mask] *= -1.0
         ny[flip_mask] *= -1.0
-
+        
         self.face_normals_x = nx
         self.face_normals_y = ny
 
+        # 4. Cell Volumes
+        # Pappus's Second Theorem: Volume = Area_2D * 2 * pi * Radius_Centroid
         cn = self.cell_nodes
-        x1 = self.nodes_x[cn[:, 0]]
-        y1 = self.nodes_y[cn[:, 0]]
-        x2 = self.nodes_x[cn[:, 1]]
-        y2 = self.nodes_y[cn[:, 1]]
-        x3 = self.nodes_x[cn[:, 2]]
-        y3 = self.nodes_y[cn[:, 2]]
+        cx1 = self.nodes_x[cn[:, 0]]
+        cy1 = self.nodes_y[cn[:, 0]]
+        cx2 = self.nodes_x[cn[:, 1]]
+        cy2 = self.nodes_y[cn[:, 1]]
+        cx3 = self.nodes_x[cn[:, 2]]
+        cy3 = self.nodes_y[cn[:, 2]]
         
-        term1 = x1 * (y2 - y3)
-        term2 = x2 * (y3 - y1)
-        term3 = x3 * (y1 - y2)
+        # 2D Area (Shoelace)
+        term1 = cx1 * (cy2 - cy3)
+        term2 = cx2 * (cy3 - cy1)
+        term3 = cx3 * (cy1 - cy2)
+        area_2d = 0.5 * np.abs(term1 + term2 + term3)
         
-        self.cell_volumes = 0.5 * np.abs(term1 + term2 + term3)
+        # --- AXISYMMETRIC MODIFICATION ---
+        # Radius of centroid
+        radius_cell = np.abs(self.cell_centers_y)
+        self.cell_volumes = area_2d * 2.0 * np.pi * radius_cell
+        
+        
+        

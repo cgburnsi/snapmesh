@@ -55,6 +55,27 @@ def create_structured_nozzle():
     print("  -> Generating structured mesh...")
     mesh = generate_structured_mesh(bottom_curve, top_curve, left_curve, right_curve, ni=60, nj=15)
     
+    # ... inside create_structured_nozzle ...
+    
+    # Calculate Area Ratio
+    A_throat = np.pi * (rt ** 2)
+    A_exit   = np.pi * (re ** 2)
+    area_ratio = A_exit / A_throat
+    
+    print("--- GEOMETRY CHECK ---")
+    print(f"Throat Radius: {rt/0.0254:.3f} in")
+    print(f"Exit Radius:   {re/0.0254:.3f} in")
+    print(f"Area Ratio:    {area_ratio:.3f}")
+    
+    # Isentropic Estimate (Gamma = 1.4)
+    # (Simplified lookup)
+    if area_ratio > 2.0:
+        print("Theoretical Mach should be > 2.2")
+    else:
+        print("Geometry might limit Mach number.")
+    print("----------------------")
+
+
     return mesh
 
 # --- 2. Simulation Setup ---
