@@ -74,7 +74,7 @@ def setup_simulation():
     
     # 4. Set Initial Conditions
     # Standard Sea Level Inlet -> Vacuum Exit
-    p_inlet = 101325.0  # Pa
+    p_inlet = cv.convert(100, 'psi', 'Pa') 
     p_exit  = 50000.0   # Pa (Vacuum downstream)
     T_total = 300.0     # K
     
