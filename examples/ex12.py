@@ -15,7 +15,7 @@ def run_solver():
     solver = fvm_solver.EulerSolver(grid, field)
     
     # 3. Time Loop
-    target_time = 0.1 # Run Time
+    target_time = 0.01 # Run Time
     current_time = 0.0
     iteration = 0
     

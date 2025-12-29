@@ -5,165 +5,167 @@ class EulerSolver:
         self.grid = grid
         self.field = field
         
-        # Pre-allocate flux arrays to avoid garbage collection every step
-        # 4 equations: rho, rhou, rhov, rhoE
+        # Pre-allocate flux arrays
         self.flux_rho  = np.zeros(grid.num_faces)
         self.flux_rhou = np.zeros(grid.num_faces)
         self.flux_rhov = np.zeros(grid.num_faces)
         self.flux_rhoE = np.zeros(grid.num_faces)
 
+        # --- PRE-PROCESS BOUNDARY MASKS ---
+        # We check the string tags once here to speed up the loop
+        # Convert list to numpy array for boolean masking
+        tags = np.array(grid.face_tags, dtype=object)
+        
+        # Identify face indices for each type
+        # Note: We treat "Centerline" same as "Wall" (Slip condition)
+        self.mask_inlet  = (tags == "Left")   # Or "Inlet" depending on ex11 names
+        self.mask_outlet = (tags == "Right")  # Or "Outlet"
+        self.mask_wall   = (tags == "Top") | (tags == "Bottom") | (tags == "Wall") | (tags == "Centerline")
+        self.mask_internal = (grid.face_neighbor != -1)
+        
+        # Debug print to ensure we found them
+        print(f"Solver Init: Found {np.sum(self.mask_inlet)} Inlets, "
+              f"{np.sum(self.mask_outlet)} Outlets, {np.sum(self.mask_wall)} Walls")
+        
+        # Boundary Conditions (Stagnation)
+        self.P_stag = 101325.0
+        self.T_stag = 300.0
+        self.rho_stag = self.P_stag / (287.05 * self.T_stag)
+        # Energy at stagnation (u=0) is just internal energy
+        self.rhoE_stag = self.P_stag / (field.gamma - 1.0) 
+
     def compute_time_step(self, cfl=0.5):
         """
-        Calculates the maximum stable dt based on the CFL condition.
-        dt = CFL * min( Volume / ( (|u|+c) * Area ) )
+        Calculates dt based on CFL condition.
         """
         g = self.grid
         f = self.field
         
-        # Sound speed c = sqrt(gamma * p / rho)
-        c = np.sqrt(f.gamma * f.p / f.rho)
-        
-        # Velocity magnitude
+        # Sound speed
+        c = np.sqrt(f.gamma * np.maximum(f.p, 1e-5) / np.maximum(f.rho, 1e-5))
         vel_mag = np.sqrt(f.u**2 + f.v**2)
-        
-        # Max wave speed (approximate)
         lambda_max = vel_mag + c
         
-        # We need a characteristic length scale for each cell.
-        # Approximation: Length ~ sqrt(Volume)
         length_scale = np.sqrt(g.cell_volumes)
-        
-        # Local dt allowed
         local_dt = length_scale / (lambda_max + 1e-12)
         
-        # Global dt is the minimum of all local limits
-        dt = cfl * np.min(local_dt)
-        return dt
+        return cfl * np.min(local_dt)
 
     def compute_fluxes(self):
-        """
-        Computes fluxes across all faces using the Rusanov (Lax-Friedrichs) method.
-        """
         g = self.grid
         f = self.field
         
-        # 1. Identify Left (Owner) and Right (Neighbor) Indices
+        # --- 1. STATE RECONSTRUCTION ---
+        # Initialize Left/Right states
+        # Left is ALWAYS the Owner (Interior)
         idx_L = g.face_owner
-        idx_R = g.face_neighbor
+        rho_L, u_L, v_L, p_L, rhoE_L = f.rho[idx_L], f.u[idx_L], f.v[idx_L], f.p[idx_L], f.rhoE[idx_L]
         
-        # ---------------------------------------------------------
-        # A. BOUNDARY CONDITIONS (Ghost State Approximation)
-        # ---------------------------------------------------------
-        # For faces where Neighbor is -1, we need to determine the "Right" state.
-        # For now, we use a simple "Copy" boundary (Neumann / Extrapolation).
-        # This acts like a supersonic outlet (lets flow leave).
-        # Ideally, we handle Walls/Inlets specifically here.
+        # Initialize Right (Ghost) as a copy of Left (default to Neumann)
+        # We will overwrite specific sections below
+        rho_R  = rho_L.copy()
+        u_R    = u_L.copy()
+        v_R    = v_L.copy()
+        p_R    = p_L.copy()
+        rhoE_R = rhoE_L.copy()
         
-        # Create temporary arrays for State_Right that default to State_Left
-        # Then we only overwrite the valid neighbors.
-        rho_R  = f.rho[idx_L].copy()
-        u_R    = f.u[idx_L].copy()
-        v_R    = f.v[idx_L].copy()
-        p_R    = f.p[idx_L].copy()
-        rhoE_R = f.rhoE[idx_L].copy()
+        # A. INTERNAL FACES: Neighbor is the Right state
+        mask_int = self.mask_internal
+        idx_neigh = g.face_neighbor[mask_int]
+        rho_R[mask_int]  = f.rho[idx_neigh]
+        u_R[mask_int]    = f.u[idx_neigh]
+        v_R[mask_int]    = f.v[idx_neigh]
+        p_R[mask_int]    = f.p[idx_neigh]
+        rhoE_R[mask_int] = f.rhoE[idx_neigh]
+
+        # B. INLET FACES: Force Stagnation State
+        # Ghost cell is a high-pressure tank with u=0.
+        # This pressure difference drives the flow.
+        mask_in = self.mask_inlet
+        rho_R[mask_in]  = self.rho_stag
+        p_R[mask_in]    = self.P_stag
+        u_R[mask_in]    = 0.0
+        v_R[mask_in]    = 0.0
+        rhoE_R[mask_in] = self.rhoE_stag
+
+        # C. WALL FACES: Reflect Velocity (Slip Wall)
+        # Ghost Density/Pressure = Owner Density/Pressure
+        # Ghost Velocity = Mirror of Owner Velocity across Normal
+        mask_w = self.mask_wall
         
-        # Overwrite internal faces (where neighbor != -1)
-        internal_mask = (idx_R != -1)
-        valid_neighbors = idx_R[internal_mask]
+        # Get normals for wall faces
+        nx_w = g.face_normals_x[mask_w]
+        ny_w = g.face_normals_y[mask_w]
         
-        rho_R[internal_mask]  = f.rho[valid_neighbors]
-        u_R[internal_mask]    = f.u[valid_neighbors]
-        v_R[internal_mask]    = f.v[valid_neighbors]
-        p_R[internal_mask]    = f.p[valid_neighbors]
-        rhoE_R[internal_mask] = f.rhoE[valid_neighbors]
+        # V_normal = V dot n
+        vn = u_L[mask_w] * nx_w + v_L[mask_w] * ny_w
         
-        # Left State is always the Owner
-        rho_L  = f.rho[idx_L]
-        u_L    = f.u[idx_L]
-        v_L    = f.v[idx_L]
-        p_L    = f.p[idx_L]
-        rhoE_L = f.rhoE[idx_L]
+        # V_reflected = V - 2 * V_normal * n
+        u_R[mask_w] = u_L[mask_w] - 2 * vn * nx_w
+        v_R[mask_w] = v_L[mask_w] - 2 * vn * ny_w
         
-        # ---------------------------------------------------------
-        # B. FLUX CALCULATION (Rusanov)
-        # ---------------------------------------------------------
-        # Normal vectors (nx, ny) and Face Areas
+        # D. OUTLET FACES:
+        # Already handled by the "Copy" default (Neumann condition).
+        # This lets waves exit the domain.
+
+        # --- 2. RUSANOV FLUX CALCULATION ---
+        # (Same math as before, but now using our corrected Ghost States)
+        
         nx = g.face_normals_x
         ny = g.face_normals_y
         area = g.face_areas
         
-        # 1. Compute Enthalpy: H = (rhoE + p) / rho
+        # Enthalpy
         H_L = (rhoE_L + p_L) / rho_L
         H_R = (rhoE_R + p_R) / rho_R
         
-        # 2. Compute Normal Velocity: un = u*nx + v*ny
+        # Normal Velocity
         un_L = u_L * nx + v_L * ny
         un_R = u_R * nx + v_R * ny
         
-        # 3. Compute Physical Flux Vectors F(U)
-        # Mass: rho * un
+        # Flux Vectors F(U)
+        # Mass
         flux_rho_L = rho_L * un_L
         flux_rho_R = rho_R * un_R
-        
-        # Momentum X: rho * u * un + p * nx
+        # Momentum X
         flux_rhou_L = rho_L * u_L * un_L + p_L * nx
         flux_rhou_R = rho_R * u_R * un_R + p_R * nx
-        
-        # Momentum Y: rho * v * un + p * ny
+        # Momentum Y
         flux_rhov_L = rho_L * v_L * un_L + p_L * ny
         flux_rhov_R = rho_R * v_R * un_R + p_R * ny
-        
-        # Energy: rhoH * un
+        # Energy
         flux_rhoE_L = rho_L * H_L * un_L
         flux_rhoE_R = rho_R * H_R * un_R
         
-        # 4. Dissipation Term (The "Stabilizer")
-        # Max wave speed at the interface: lambda = |un| + c
-        c_L = np.sqrt(f.gamma * p_L / rho_L)
-        c_R = np.sqrt(f.gamma * p_R / rho_R)
+        # Dissipation (Wave Speeds)
+        c_L = np.sqrt(f.gamma * np.maximum(p_L, 1e-5) / np.maximum(rho_L, 1e-5))
+        c_R = np.sqrt(f.gamma * np.maximum(p_R, 1e-5) / np.maximum(rho_R, 1e-5))
         lambda_L = np.abs(un_L) + c_L
         lambda_R = np.abs(un_R) + c_R
         alpha = np.maximum(lambda_L, lambda_R)
         
-        # Rusanov Flux Formula:
-        # F_face = 0.5 * (F_L + F_R) - 0.5 * alpha * (U_R - U_L)
-        
-        self.flux_rho  = 0.5 * (flux_rho_L  + flux_rho_R)  - 0.5 * alpha * (rho_R  - rho_L)
-        self.flux_rhou = 0.5 * (flux_rhou_L + flux_rhou_R) - 0.5 * alpha * (rho_R * u_R - rho_L * u_L)
-        self.flux_rhov = 0.5 * (flux_rhov_L + flux_rhov_R) - 0.5 * alpha * (rho_R * v_R - rho_L * v_L)
-        self.flux_rhoE = 0.5 * (flux_rhoE_L + flux_rhoE_R) - 0.5 * alpha * (rhoE_R - rhoE_L)
-        
-        # Multiply by Face Area (needed for the update step)
-        self.flux_rho  *= area
-        self.flux_rhou *= area
-        self.flux_rhov *= area
-        self.flux_rhoE *= area
+        # Final Flux
+        self.flux_rho  = (0.5 * (flux_rho_L  + flux_rho_R)  - 0.5 * alpha * (rho_R  - rho_L)) * area
+        self.flux_rhou = (0.5 * (flux_rhou_L + flux_rhou_R) - 0.5 * alpha * (rho_R * u_R - rho_L * u_L)) * area
+        self.flux_rhov = (0.5 * (flux_rhov_L + flux_rhov_R) - 0.5 * alpha * (rho_R * v_R - rho_L * v_L)) * area
+        self.flux_rhoE = (0.5 * (flux_rhoE_L + flux_rhoE_R) - 0.5 * alpha * (rhoE_R - rhoE_L)) * area
 
     def update_field(self, dt):
-        """
-        Applies the fluxes to update the conservative variables.
-        U_new = U_old - (dt / Volume) * sum(Fluxes)
-        """
         g = self.grid
         f = self.field
         
-        # We need to accumulate fluxes for every cell.
-        # Since face_owner and face_neighbor are irregular, we use np.add.at
-        
-        # Initialize net flux for each cell to 0
         d_rho  = np.zeros(g.num_cells)
         d_rhou = np.zeros(g.num_cells)
         d_rhov = np.zeros(g.num_cells)
         d_rhoE = np.zeros(g.num_cells)
         
-        # 1. Subtract Flux from Owners (Normal points OUT)
+        # Subtract from Owner
         np.add.at(d_rho,  g.face_owner, -self.flux_rho)
         np.add.at(d_rhou, g.face_owner, -self.flux_rhou)
         np.add.at(d_rhov, g.face_owner, -self.flux_rhov)
         np.add.at(d_rhoE, g.face_owner, -self.flux_rhoE)
         
-        # 2. Add Flux to Neighbors (Normal points IN to neighbor)
-        # Only for internal faces (neighbor != -1)
+        # Add to Neighbor (Internal Only)
         mask = (g.face_neighbor != -1)
         valid_neigh = g.face_neighbor[mask]
         
@@ -172,14 +174,11 @@ class EulerSolver:
         np.add.at(d_rhov, valid_neigh, self.flux_rhov[mask])
         np.add.at(d_rhoE, valid_neigh, self.flux_rhoE[mask])
         
-        # 3. Apply Update
-        # U += dt/V * NetFlux
+        # Update
         factor = dt / g.cell_volumes
-        
         f.rho  += factor * d_rho
         f.rhou += factor * d_rhou
         f.rhov += factor * d_rhov
         f.rhoE += factor * d_rhoE
         
-        # 4. Update Primitives for next step
         f.primitives_from_conservatives()
