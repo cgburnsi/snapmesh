@@ -1,4 +1,5 @@
 import math
+import snapmesh as sm
 from enum import Enum
 
 # --- Entities ---
@@ -85,30 +86,60 @@ class Mesh:
             return e
 
     def add_boundary_loop(self, curve, count, tag=None):
-        """
-        Discretizes a parametric curve into 'count' segments.
-        Generates nodes and boundary edges automatically.
-        """
         created_nodes = []
         
-        # 1. Create Nodes along the curve
-        for i in range(count):
-            # t goes from 0.0 to 1.0 (exclusive of 1.0 for loops)
-            t = i / float(count)
+        # --- STRATEGY A: COMPOSITE CURVE (Smart Corner Handling) ---
+        if hasattr(curve, "segments"):
+            segs = curve.segments
+            num_segs = len(segs)
             
-            x, y = curve.evaluate(t)
-            n = self.add_node(x, y)
+            # Distribute the total 'count' among the segments.
+            # (Simple approach: equal nodes per segment. Can be improved later)
+            nodes_per_seg = max(1, count // num_segs)
             
-            # Attach the curve so they stick to it later!
-            n.constraint = curve 
-            created_nodes.append(n)
+            for seg_idx, seg in enumerate(segs):
+                # Generate nodes for this segment
+                # We go from 0 to N-1 (inclusive) to avoid duplicating the endpoint,
+                # because the endpoint of this segment is the start of the next one.
+                for j in range(nodes_per_seg):
+                    t = j / float(nodes_per_seg)
+                    x, y = seg.evaluate(t)
+                    n = self.add_node(x, y)
+                    
+                    # Constraint Logic:
+                    # 1. The start of a segment (j=0) is a CORNER. Fix it.
+                    if j == 0:
+                        n.constraint = None # Fixed/Point constraint
+                    else:
+                        n.constraint = seg  # Sliding constraint
+                        
+                    created_nodes.append(n)
+
+        # --- STRATEGY B: SIMPLE CURVE (Circle, etc) ---
+        else:
+            for i in range(count):
+                t = i / float(count)
+                x, y = curve.evaluate(t)
+                n = self.add_node(x, y)
+                n.constraint = curve
+                created_nodes.append(n)
             
-        # 2. Connect Edges in a loop
-        for i in range(count):
+        # --- CONNECT EDGES ---
+        total_nodes = len(created_nodes)
+        for i in range(total_nodes):
             n_curr = created_nodes[i]
-            n_next = created_nodes[(i + 1) % count] # Wrap back to start
+            n_next = created_nodes[(i + 1) % total_nodes]
             
             edge = self.tag_boundary_edge(n_curr.id, n_next.id, tag)
-            edge.constraint = curve
+            
+            # For the edge constraint, we need to know which segment it belongs to.
+            # Since we built 'created_nodes' in segment order, we can infer it.
+            if hasattr(curve, "segments"):
+                # Map global index 'i' back to segment index
+                nodes_per_seg = max(1, count // len(curve.segments))
+                seg_idx = (i // nodes_per_seg) % len(curve.segments)
+                edge.constraint = curve.segments[seg_idx]
+            else:
+                edge.constraint = curve
             
         return created_nodes

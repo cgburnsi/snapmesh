@@ -1,5 +1,22 @@
 import math
 
+class Point:
+    """
+    Pins a node to a specific (x, y) location.
+    Effectively a 'Fixed' constraint.
+    """
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def snap(self, node):
+        # Force the node exactly to this location
+        node.x = self.x
+        node.y = self.y
+        
+    def __repr__(self):
+        return f'Point: (x, y) = {self.x:4.4f}, {self.y:4.4f}.'
+
 class ParametricCurve:
     """
     Abstract base class for all 1D boundaries.
@@ -76,18 +93,18 @@ class Line(ParametricCurve):
 
 
 class Arc(ParametricCurve):
-    def __init__(self, cx, cy, r, start_angle_deg, end_angle_deg):
+    def __init__(self, cx, cy, r, start_angle, end_angle):
         self.cx = cx
         self.cy = cy
         self.r = r
-        # Convert to radians for the math library
-        self.start_rad = math.radians(start_angle_deg)
-        self.end_rad = math.radians(end_angle_deg)
-        self.sweep = self.end_rad - self.start_rad
+        # The caller provdes the angles in radians
+        self.start = start_angle
+        self.end = end_angle
+        self.sweep = self.end - self.start
 
     def evaluate(self, t):
         # t goes from 0.0 to 1.0
-        theta = self.start_rad + (self.sweep * t)
+        theta = self.start + (self.sweep * t)
         x = self.cx + self.r * math.cos(theta)
         y = self.cy + self.r * math.sin(theta)
         return x, y
