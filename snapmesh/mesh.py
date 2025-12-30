@@ -1,6 +1,8 @@
 import math
-import snapmesh as sm
+import numpy as np
+
 from enum import Enum
+from .topology import Node, Edge, Cell
 
 # --- Entities ---
 class BCTag(Enum):
@@ -8,32 +10,8 @@ class BCTag(Enum):
     INLET = 2
     OUTLET = 3
 
-class Node:
-    def __init__(self, nid, x, y):
-        self.id = nid
-        self.x = x
-        self.y = y
-        self.constraint = None  # Holds the geometry object (Circle, Line, etc.)
 
-    def snap(self):
-        """If constrained, move to the closest point on the geometry."""
-        if self.constraint:
-            self.constraint.snap(self)
 
-class Edge:
-    def __init__(self, n1, n2):
-        self.n1 = n1
-        self.n2 = n2
-        self.is_boundary = False
-        self.bc_tag = None
-        self.constraint = None
-
-class Cell:
-    def __init__(self, cid, n1, n2, n3):
-        self.id = cid
-        self.n1 = n1
-        self.n2 = n2
-        self.n3 = n3
 
 # --- The Mesh Class ---
 class Mesh:
@@ -42,6 +20,7 @@ class Mesh:
         self.edges = {}
         self.cells = {}
         self.node_counter = 0
+        self.edge_counter = 0
         self.cell_counter = 0
 
     def add_node(self, x, y):
@@ -51,23 +30,49 @@ class Mesh:
         self.nodes[n.id] = n
         return n
 
+# In mesh.py inside Mesh class
+
     def add_cell(self, n1_id, n2_id, n3_id):
-        """Creates a triangle cell."""
         self.cell_counter += 1
-        c = Cell(self.cell_counter, n1_id, n2_id, n3_id)
+        
+        # 1. Get Node Objects
+        n1 = self.nodes[n1_id]
+        n2 = self.nodes[n2_id]
+        n3 = self.nodes[n3_id]
+        
+        # 2. Get Edge Objects
+        e1 = self._register_edge(n1_id, n2_id)
+        e2 = self._register_edge(n2_id, n3_id)
+        e3 = self._register_edge(n3_id, n1_id)
+        
+        # 3. Create the Triangle Cell
+        c = Cell(self.cell_counter, n1, n2, n3, e1, e2, e3)
         self.cells[c.id] = c
         
-        # Register edges implicitly so we can tag them later
-        self._register_edge(n1_id, n2_id)
-        self._register_edge(n2_id, n3_id)
-        self._register_edge(n3_id, n1_id)
         return c
 
-    def _register_edge(self, n1, n2):
-        """Internal helper to track edges."""
-        key = tuple(sorted((n1, n2)))
+# In mesh.py
+
+    def _register_edge(self, n1_id, n2_id):
+        """
+        Internal helper to track edges. 
+        Ensures every unique edge gets a unique ID for FVM.
+        """
+        key = tuple(sorted((n1_id, n2_id)))
+        
         if key not in self.edges:
-            self.edges[key] = Edge(n1, n2)
+            # 1. Retrieve the actual Node objects
+            node_obj_a = self.nodes[n1_id]
+            node_obj_b = self.nodes[n2_id]
+            
+            # 2. Increment the ID counter
+            self.edge_counter += 1
+            new_eid = self.edge_counter
+            
+            # 3. Create the Edge with the MANDATORY ID
+            # This matches your new __init__(self, eid, node_a, node_b)
+            self.edges[key] = Edge(new_eid, node_obj_a, node_obj_b)
+            
         return self.edges[key]
 
     def tag_boundary_edge(self, n1_id, n2_id, tag):

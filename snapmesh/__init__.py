@@ -2,9 +2,12 @@
 
 __version__ = "1.0"
 
-# Import the Mesh class from the submodule
+# Import Primitives
+from .topology import Node, Edge, Cell
+
+# Import the Mesh class 
 from .mesh import Mesh
+
+# Import Geometry
 from .geometry import Point, Arc, Circle, Line, CompositeCurve, CubicCurve, Polygon, RegularPolygon
 from .refine import refine_global
-
-

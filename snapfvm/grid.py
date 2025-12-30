@@ -23,9 +23,9 @@ class UnstructuredGrid:
 
         for i, (cid, cell) in enumerate(mesh.cells.items()):
             self.cell_id_map[cid] = i
-            n1_idx = self.node_id_map[cell.n1]
-            n2_idx = self.node_id_map[cell.n2]
-            n3_idx = self.node_id_map[cell.n3]
+            n1_idx = self.node_id_map[cell.n1.id]
+            n2_idx = self.node_id_map[cell.n2.id]
+            n3_idx = self.node_id_map[cell.n3.id]
             
             self.cell_nodes[i, 0] = n1_idx
             self.cell_nodes[i, 1] = n2_idx
@@ -47,9 +47,9 @@ class UnstructuredGrid:
         edge_to_cells = {}
         for cid, cell in mesh.cells.items():
             c_idx = self.cell_id_map[cid]
-            es = [tuple(sorted((cell.n1, cell.n2))),
-                  tuple(sorted((cell.n2, cell.n3))),
-                  tuple(sorted((cell.n3, cell.n1)))]
+            es = [tuple(sorted((cell.n1.id, cell.n2.id))),
+                  tuple(sorted((cell.n2.id, cell.n3.id))),
+                  tuple(sorted((cell.n3.id, cell.n1.id)))]
             for e in es:
                 if e not in edge_to_cells: edge_to_cells[e] = []
                 edge_to_cells[e].append(c_idx)
