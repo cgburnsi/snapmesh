@@ -1,5 +1,8 @@
 import numpy as np
 
+# Establish a tolerance for avoiding floating point errors in equality checks
+GEOM_TOL = 1e-12
+
 class Node:
     ''' Represents a topological vertex in the mesh with precise geometric coordinates.
 
@@ -94,46 +97,73 @@ class Edge:
     
 
 class Cell:
-    """
-    Represents a triangular element. 
-    Strictly holds 3 Node objects and 3 Edge objects.
-    """
-    # Optimized slots for exactly 3 nodes/edges
-    __slots__ = ['id', 'n1', 'n2', 'n3', 'e1', 'e2', 'e3', 'center', 'area']
+    ''' Represents a triangular Finite Volume Cell.
+    
+    This class is the fundamental volumetric unit for the solver. It strictly 
+    maintains a collection of 3 Nodes and 3 Edges. Crucially, it enforces 
+    Counter-Clockwise (CCW) winding order upon initialization. This guarantees 
+    that the signed area is positive and that edge normal vectors point 
+    outwards, which is a hard requirement for flux calculations in FVM.
+
+    Attributes:
+        id (int): Unique integer identifier for the cell.
+        n1, n2, n3 (Node): The three vertices of the triangle (ordered CCW).
+        e1, e2, e3 (Edge): The three edges connecting the vertices.
+    
+    Properties:
+        area (float): The signed area of the triangle (always positive due to CCW enforcement).
+        center (np.ndarray): The (x, y) centroid of the triangle.
+    '''
+    __slots__ = ['id', 'n1', 'n2', 'n3', 'e1', 'e2', 'e3']
 
     def __init__(self, cid, n1, n2, n3, e1, e2, e3):
         self.id = int(cid)
         
-        # Geometry (Node Objects)
+        # --- Calculate Signed Area For Topology Checks ---        
+        area_sn = Cell._calculate_signed_area(n1, n2, n3)
+        
+        # --- Check for Degenerate (Very Small) Cells ---
+        if abs(area_sn) < GEOM_TOL:
+            raise ValueError(f'Cell {cid} is degenerate (Area={area_sn:.2e}). '
+                             f'Nodes: {n1.id}, {n2.id}, {n3.id} are collinear/coincident.')
+            
+        # --- Enforce Winding Order: Counter Clock Wise (CCW) ---
+        if area_sn < -GEOM_TOL:
+            # Must swap Nodes and Edges to ensure CCW winding
+            n2, n3 = n3, n2
+            e1, e3 = e3, e1
+
+        # --- Store Validated Data ---
         self.n1 = n1
         self.n2 = n2
         self.n3 = n3
         
-        # Topology (Edge Objects)
         self.e1 = e1
         self.e2 = e2
         self.e3 = e3
-        
-        # Pre-calc geometric properties
-        self.center = self._compute_centroid()
-        self.area = self._compute_area()
 
-    def _compute_centroid(self):
-        # Simple average of the 3 node coordinates
+    @staticmethod
+    def _calculate_signed_area(n1, n2, n3):
+        ''' Calculates 2D cross product to determine signed area.
+        Result > 0 : Counter-Clockwise (CCW)
+        Result < 0 : Clockwise (CW)
+        '''
+        return 0.5 * ((n2.x - n1.x) * (n3.y - n1.y) -
+                      (n3.x - n1.x) * (n2.y - n1.y))
+
+    @property
+    def area(self):
+        ''' Calculates Cell Area on the fly using the current self state. '''
+        return Cell._calculate_signed_area(self.n1, self.n2, self.n3)
+
+    @property
+    def center(self):
+        ''' Returns the geometric centroid (average of vertices). '''
         return (self.n1.to_array() + self.n2.to_array() + self.n3.to_array()) / 3.0
-
-    def _compute_area(self):
-        # Cross product method for triangle area (2D)
-        # Area = 0.5 * |(x2-x1)(y3-y1) - (x3-x1)(y2-y1)|
-        return 0.5 * abs(
-            (self.n2.x - self.n1.x) * (self.n3.y - self.n1.y) - 
-            (self.n3.x - self.n1.x) * (self.n2.y - self.n1.y)
-        )
 
     def __repr__(self):
         return f"Cell(id={self.id}, nodes=({self.n1.id}, {self.n2.id}, {self.n3.id}))"
-
-
+           
 
 if __name__ == '__main__':
     
@@ -143,12 +173,16 @@ if __name__ == '__main__':
     e1 = Edge(1, a1, a2)
     e2 = Edge(2, a2, a3)
     e3 = Edge(3, a3, a1)
+    c1 = Cell(1, a1, a2, a3, e1, e2, e3)
     
     print(a1)
     print(a2)
     print(a3)
+    print()
     print(e1)
     print(e2)
     print(e3)
+    print()
+    print(c1)
 
 
