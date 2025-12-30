@@ -1,4 +1,127 @@
+''' geometry.py
+    -----------
+    Defines geometric constraints (Lines, Circles, etc.) that Nodes can 'snap' to.
+    These classes are used by the Mesh manager to enforce shape fidelity.
+'''
+import numpy as np
+from abc import ABC, abstractmethod
+
 import math
+
+class Geometry(ABC):
+    ''' Abstract Base Class for all geometric constraints.
+        Enforces that every subclass MUST implement the 
+        following methods.
+    '''
+    
+    @abstractmethod
+    def snap(self, node):
+        ''' Modifies the node's (x, y) position in-place. '''
+        pass
+
+
+class ParametricCurve(ABC):
+    ''' Abstract base for all 1D Curves. '''
+    
+    @abstractmethod
+    def evaluate(self, t):
+        ''' Returns (x, y) coordinates at parameter t (0.0 <= t <= 1.0). '''
+        pass
+
+
+
+class LineSegment(ParametricCurve):
+    """ 
+    A straight line connecting two points (p1, p2).
+    Nodes snap to the segment. If they project outside the endpoints,
+    they are clamped to the nearest endpoint (p1 or p2).
+    """
+    def __init__(self, p1, p2):
+        self.p1 = np.array(p1, dtype=np.float64)
+        self.p2 = np.array(p2, dtype=np.float64)
+        
+        self.vec = self.p2 - self.p1
+        self.len_sq = np.dot(self.vec, self.vec)
+        
+        if self.len_sq == 0:
+            raise ValueError("LineSegment cannot be zero length.")
+
+    def evaluate(self, t):
+        """ Returns point at t (0.0 = p1, 1.0 = p2). """
+        return self.p1 + t * self.vec
+
+    def snap(self, node):
+        """ Projects node onto the SEGMENT. Clamps to endpoints 
+            if the projection falls outside.
+        """
+        p = node.to_array()
+        ap = p - self.p1
+        
+        # Projection factor t
+        t = np.dot(ap, self.vec) / self.len_sq
+        
+        # --- CLAMPING (The "Segment" behavior) ---
+        t = np.clip(t, 0.0, 1.0)
+        
+        # Calculate closest point
+        closest = self.p1 + t * self.vec
+        node.update_from_array(closest)
+
+    def __repr__(self):
+        return f"LineSegment(p1={self.p1}, p2={self.p2})"
+
+    
+
+
+class Circle(ParametricCurve):
+    """
+    A full circle defined by center (cx, cy) and radius r.
+    Parameter t (0..1) maps to 0..2*pi radians.
+    """
+    def __init__(self, center, radius):
+        self.center = np.array(center, dtype=np.float64)
+        self.r = float(radius)
+        
+        if self.r <= 0:
+            raise ValueError("Circle radius must be positive.")
+
+    def evaluate(self, t):
+        """ Returns point at parameter t (0.0 to 1.0). """
+        # Map t to angle (radians)
+        theta = t * 2.0 * np.pi
+        
+        x = self.center[0] + self.r * np.cos(theta)
+        y = self.center[1] + self.r * np.sin(theta)
+        return np.array([x, y])
+
+    def snap(self, node):
+        """ 
+        Projects node onto the circle circumference.
+        """
+        p = node.to_array()
+        vec = p - self.center
+        
+        # Calculate distance from center
+        dist = np.linalg.norm(vec)
+        
+        # Prevent singularity at the exact center
+        if dist < 1e-12:
+            # Edge case: If node is at center, snap to angle 0
+            node.x = self.center[0] + self.r
+            node.y = self.center[1]
+            return
+
+        # Scale vector to match radius
+        scale = self.r / dist
+        closest = self.center + vec * scale
+        
+        node.update_from_array(closest)
+        
+    def __repr__(self):
+        return f"Circle(center={self.center}, r={self.r})"
+    
+    
+        
 
 class Point:
     """
@@ -17,22 +140,8 @@ class Point:
     def __repr__(self):
         return f'Point: (x, y) = {self.x:4.4f}, {self.y:4.4f}.'
 
-class ParametricCurve:
-    """
-    Abstract base class for all 1D boundaries.
-    """
-    def evaluate(self, t):
-        """
-        Returns (x, y) coordinates at parameter t (0.0 <= t <= 1.0).
-        """
-        raise NotImplementedError("Subclasses must implement evaluate(t)")
 
-    def snap(self, node):
-        """
-        Projects a node onto the closest point on this curve.
-        """
-        raise NotImplementedError("Subclasses must implement snap(node)")
-
+'''
 class Circle(ParametricCurve):
     def __init__(self, x, y, r):
         self.cx = x
@@ -59,6 +168,7 @@ class Circle(ParametricCurve):
         scale = self.r / dist
         node.x = self.cx + dx * scale
         node.y = self.cy + dy * scale
+
 
 class Line(ParametricCurve):
     def __init__(self, x1, y1, x2, y2):
@@ -89,7 +199,7 @@ class Line(ParametricCurve):
         # Closest point
         node.x = x1 + u * dx
         node.y = y1 + u * dy
-
+'''
 
 
 class Arc(ParametricCurve):
