@@ -2,7 +2,7 @@ import math
 import numpy as np
 
 from enum import Enum
-from .topology import Node, Edge, Cell
+from .elements import Node, Edge, Cell
 
 # --- Entities ---
 class BCTag(Enum):

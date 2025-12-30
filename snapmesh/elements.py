@@ -61,8 +61,9 @@ class Edge:
         constraint (object, optional): A reference to a geometric constraint 
             entity (e.g., a parametric Curve or Segment) that restricts this 
             edges position. Used to maintain shape fidelity during optimization.
+        cells (list): List of Cell objects sharing this edge [Owner, Neighbor].
     '''
-    __slots__ = ['id', 'node_a', 'node_b', 'is_boundary', 'bc_tag', 'constraint']
+    __slots__ = ['id', 'node_a', 'node_b', 'is_boundary', 'bc_tag', 'constraint', 'cells']
 
     def __init__(self, eid, node_a, node_b):
         self.id = eid  
@@ -72,6 +73,8 @@ class Edge:
         self.is_boundary = False
         self.bc_tag = None
         self.constraint = None
+        
+        self.cells = []             # Eventually will hold [Cell_left, Cell_right]
 
     @property
     def length(self):
@@ -88,6 +91,25 @@ class Edge:
     def vector(self):
         ''' Returns the vector (B - A). '''
         return self.node_b.to_array() - self.node_a.to_array()
+
+    @property
+    def normal(self):
+        ''' Returns the 2D unit normal vector perpendicular to the edge.
+            Rotates the edge vector (dx, dy) 90 degrees CCW to (-dy, dx).
+            Note: The solver must determine if this points "in" or "out" 
+            relative to a specific cell.
+        '''
+        # Get tangent vector (dx, dy)
+        v = self.node_b.to_array() - self.node_a.to_array()
+        
+        # Calculate normal (-dy, dx)
+        n = np.array([-v[1], v[0]])
+        
+        # Normalize it to unit length (Crucial for flux calculations)
+        norm = np.linalg.norm(n)
+        if norm > 0:
+            return n / norm
+        return n
 
     def __repr__(self):
         return (f'Edge(Node A ID: {self.node_a.id:3d}, '

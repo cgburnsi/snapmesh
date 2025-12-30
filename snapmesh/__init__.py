@@ -3,7 +3,7 @@
 __version__ = "1.0"
 
 # Import Primitives
-from .topology import Node, Edge, Cell
+from .elements import Node, Edge, Cell
 
 # Import the Mesh class 
 from .mesh import Mesh
