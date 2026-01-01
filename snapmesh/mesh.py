@@ -189,6 +189,53 @@ class Mesh:
         return nodes
 
 
+    def merge_duplicate_nodes(self, tolerance=1e-9):
+        """
+        Finds nodes that are geometrically identical and merges them.
+        Essential for stitching multi-block meshes or closing loops.
+        """
+        # 1. Map locations to Nodes
+        # We use a spatial key to find duplicates efficiently
+        unique_map = {} # "x_y" -> Node
+        replacements = {} # old_id -> new_node_id
+        
+        nodes_to_remove = []
+        
+        # Snapshot of current nodes
+        all_nodes = list(self.nodes.values())
+        
+        for n in all_nodes:
+            # Create a string key for precision grouping
+            # (In a production code, we'd use a KD-Tree, but this works for <100k nodes)
+            key = f"{n.x:.9f}_{n.y:.9f}"
+            
+            if key in unique_map:
+                # Found a duplicate! The one already in the map is the 'Keeper'
+                keeper = unique_map[key]
+                replacements[n.id] = keeper
+                nodes_to_remove.append(n.id)
+            else:
+                # This is a new unique location
+                unique_map[key] = n
+                
+        # 2. Re-wire Cells to point to the Keeper nodes
+        if not replacements:
+            return 0
+            
+        for cell in self.cells.values():
+            # If this cell uses a node that is being removed, swap it!
+            if cell.n1.id in replacements: cell.n1 = replacements[cell.n1.id]
+            if cell.n2.id in replacements: cell.n2 = replacements[cell.n2.id]
+            if cell.n3.id in replacements: cell.n3 = replacements[cell.n3.id]
+            
+        # 3. Remove the dead nodes
+        for nid in nodes_to_remove:
+            del self.nodes[nid]
+            
+        return len(nodes_to_remove)
+
+
+
 
 
 
