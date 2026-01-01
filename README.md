@@ -8,8 +8,10 @@ This project is built from the ground up to be readable and educational. It avoi
 
 * **`snapmesh.elements`**: The building blocks. Defines `Node` (vertices), `Edge` (connectivity/faces), and `Cell` (control volumes). Strictly enforces counter-clockwise (CCW) winding and checks for geometric degeneracy.
 * **`snapmesh.mesh`**: The container. Manages collections of elements and handles raw-to-object conversion.
-* **`snapmesh.grid`**: The solver connectivity. Converts a topological Mesh into a computational Grid, identifying neighbors and boundary conditions for FVM.
-* **`snapfvm.solver`**: (In Progress) The finite volume solver for conservation laws.
+* **`snapmesh.geometry`**: Object-oriented primitives (`LineSegment`, `Arc`) for defining precise boundaries and adaptive discretization.
+* **`snapmesh.unstructured_gen`**: The generator. Uses Frontal-Delaunay logic to build high-quality triangular meshes from polygon boundaries.
+* **`snapmesh.quality`**: The inspector. Tools for checking mesh health (Aspect Ratio, Skewness, Area).
+* **`snapmesh.grid`**: The solver connectivity. Converts a topological Mesh into a computational Grid.
 
 ## Examples Guide
 
@@ -24,30 +26,31 @@ The `examples/` directory contains a step-by-step progression from basic Python 
 ### 02. Elements & Topology (`ex02_...`)
 * **Goal:** Working with the "Smart Objects" in `elements.py`.
 * `ex02a_create_nodes.py`: Instantiating strict `Node` objects and accessing their data.
-* `ex02b_manual_topology.py`: Manually linking Nodes $\to$ Edges $\to$ Cells to understand the connectivity graph.
+* `ex02b_manual_topology.py`: Manually linking Nodes -> Edges -> Cells to understand the connectivity graph.
 * *(Planned)* `ex02c_winding_check.py`: Demonstrates the `Cell` class auto-correcting winding order (CCW).
 
-### 03. Mesh Operations (`ex03_...`)
-* **Goal:** Managing collections of elements.
-* *(Planned)* `ex03a_mesh_container.py`: Registering elements into the main `Mesh` object.
-* *(Planned)* `ex03b_raw_import.py`: Converting raw point/triangle lists into a full `snapmesh`.
+### 03. Mesh Operations & Generation (`ex03_...`)
+* **Goal:** Generating, managing, and inspecting meshes.
+* `ex03a_structured_grid.py`: Generating a simple orthogonal structured grid.
+* `ex03b_quality_check.py`: Using `MeshQuality` to calculate metrics (Area, Aspect Ratio) and visualize histograms.
+* `ex03c_mapped_mesh.py`: Transfinite Interpolation (Mapped Meshing) for 4-sided blocks.
+* `ex03d_multiblock_nozzle.py`: Stitching multiple mapped blocks together with Node Merging.
+* `ex03e_unstructured_circle.py`: Unstructured triangulation of a circle (Convex Hull test).
+* `ex03f_square_hole.py`: Unstructured meshing with internal boundaries (Holes) using Boolean logic.
+* `ex03g_unstructured_nozzle.py`: Basic unstructured meshing of the parametric Nozzle.
+* `ex03h_refined_nozzle.py`: Adaptive unstructured meshing with physics-based local refinement (Fine Throat, Coarse Inlet).
 
 ### 04. Geometry & Constraints (`ex04_...`)
 * **Goal:** Defining ideal shapes for mesh generation.
-* *(Planned)* `ex04a_geometry.py`: Creating `Line` and `Circle` constraint objects.
+* `ex04a_geometry.py`: Creating basic Constraint objects.
 * *(Planned)* `ex04b_snapping.py`: Using `node.snap()` to project vertices onto boundaries.
+* `ex04c_geometry_objects.py`: Using high-level `LineSegment` and `Arc` objects to define and discretize complex boundaries (Nozzle).
 
 ### 05. Solver Setup (`ex05_...`)
 * **Goal:** Preparing the mesh for physics.
-* *(Planned)* `ex05a_build_grid.py`: converting `Mesh` $\to$ `UnstructuredGrid`.
+* *(Planned)* `ex05a_build_grid.py`: Converting `Mesh` -> `UnstructuredGrid`.
 * *(Planned)* `ex05b_connectivity.py`: Verifying neighbor connectivity (Face-to-Cell).
 
 ### 06. Simulation (`ex06_...`)
 * **Goal:** Running Finite Volume simulations.
-* *(Planned)* `ex06a_diffusion.py`: Steady-state diffusion (formerly `ex15.py`).
-
-## Key Features
-
-* **Topological Safety:** The `Cell` class automatically detects degenerate (zero-area) triangles and enforces CCW winding.
-* **Face-Based Connectivity:** Edges store `[Owner, Neighbor]` references, enabling standard FVM flux loops.
-* **Strict Typing:** Uses `__slots__` and strict object references to prevent "loose integer" bugs common in mesh codes.
+* *(Planned)* `ex06a_diffusion.py`: Steady-state diffusion.

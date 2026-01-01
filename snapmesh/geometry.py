@@ -1,378 +1,264 @@
-''' geometry.py
-    -----------
-    Defines geometric constraints (Lines, Circles, etc.) that Nodes can 'snap' to.
-    These classes are used by the Mesh manager to enforce shape fidelity.
-'''
+"""
+snapmesh/geometry.py
+--------------------
+Object-Oriented Geometric Primitives.
+Supports:
+1. Parametric Evaluation (evaluate(t)) -> For Meshing
+2. Projection (snap(node))             -> For Constraints
+"""
 import numpy as np
 from abc import ABC, abstractmethod
-
 import math
 
-class Geometry(ABC):
-    ''' Abstract Base Class for all geometric constraints.
-        Enforces that every subclass MUST implement the 
-        following methods.
-    '''
-    
-    @abstractmethod
-    def snap(self, node):
-        ''' Modifies the node's (x, y) position in-place. '''
-        pass
-
-
 class ParametricCurve(ABC):
-    ''' Abstract base for all 1D Curves. '''
+    """ Abstract base for all 1D Curves. """
     
     @abstractmethod
     def evaluate(self, t):
-        ''' Returns (x, y) coordinates at parameter t (0.0 <= t <= 1.0). '''
+        """ Returns np.array([x, y]) at parameter t (0.0 <= t <= 1.0). """
         pass
 
+    @abstractmethod
+    def snap(self, node):
+        """ Modifies the node's (x, y) position in-place. """
+        pass
+        
+    @abstractmethod
+    def length(self):
+        """ Returns the total arc length of the curve. """
+        pass
+
+    def discretize(self, target_h):
+        """ 
+        Uniform discretization: Returns points spaced by roughly 'target_h'. 
+        """
+        L = self.length()
+        # Ensure at least 2 points (Start/End)
+        n = max(2, int(np.round(L / target_h)))
+        t_vals = np.linspace(0.0, 1.0, n)
+        return np.array([self.evaluate(t) for t in t_vals])
+
+    def discretize_adaptive(self, sizing_func):
+        """
+        Adaptive discretization: Steps along the curve based on local h requirements.
+        sizing_func: f(x, y) -> target_h
+        """
+        points = []
+        t = 0.0
+        
+        # Add Start Point
+        points.append(self.evaluate(t))
+        
+        L = self.length()
+        if L < 1e-12:
+            return np.array(points)
+
+        # Safety: Limit iterations
+        max_iter = 10000
+        it = 0
+        
+        while t < 1.0:
+            p_curr = self.evaluate(t)
+            h_req = sizing_func(p_curr[0], p_curr[1])
+            
+            # Step size in parameter space (dt = dx / L)
+            # Conservative step (0.9) to catch curvature
+            dt = (0.9 * h_req) / L
+            
+            t += dt
+            if t >= 1.0: break
+                
+            points.append(self.evaluate(t))
+            it += 1
+            if it > max_iter: break
+            
+        # Force End Point
+        points.append(self.evaluate(1.0))
+        return np.array(points)
 
 
 class LineSegment(ParametricCurve):
     """ 
     A straight line connecting two points (p1, p2).
-    Nodes snap to the segment. If they project outside the endpoints,
-    they are clamped to the nearest endpoint (p1 or p2).
     """
     def __init__(self, p1, p2):
         self.p1 = np.array(p1, dtype=np.float64)
         self.p2 = np.array(p2, dtype=np.float64)
         
         self.vec = self.p2 - self.p1
-        self.len_sq = np.dot(self.vec, self.vec)
+        self._len = np.linalg.norm(self.vec)
+        self.len_sq = self._len ** 2
         
         if self.len_sq == 0:
-            raise ValueError("LineSegment cannot be zero length.")
+            # Degenerate line handling could go here, but raising error is safer for now
+            pass 
+
+    def length(self):
+        return self._len
 
     def evaluate(self, t):
         """ Returns point at t (0.0 = p1, 1.0 = p2). """
         return self.p1 + t * self.vec
 
     def snap(self, node):
-        """ Projects node onto the SEGMENT. Clamps to endpoints 
-            if the projection falls outside.
-        """
+        """ Projects node onto the SEGMENT. Clamps to endpoints. """
         p = node.to_array()
         ap = p - self.p1
         
-        # Projection factor t
-        t = np.dot(ap, self.vec) / self.len_sq
-        
-        # --- CLAMPING (The "Segment" behavior) ---
-        t = np.clip(t, 0.0, 1.0)
-        
-        # Calculate closest point
-        closest = self.p1 + t * self.vec
+        if self.len_sq > 0:
+            t = np.dot(ap, self.vec) / self.len_sq
+            t = np.clip(t, 0.0, 1.0)
+            closest = self.p1 + t * self.vec
+        else:
+            closest = self.p1
+            
         node.update_from_array(closest)
 
     def __repr__(self):
         return f"LineSegment(p1={self.p1}, p2={self.p2})"
 
-    
-
 
 class Circle(ParametricCurve):
-    """
-    A full circle defined by center (cx, cy) and radius r.
-    Parameter t (0..1) maps to 0..2*pi radians.
-    """
+    """ A full circle defined by center and radius. """
     def __init__(self, center, radius):
         self.center = np.array(center, dtype=np.float64)
         self.r = float(radius)
-        
-        if self.r <= 0:
-            raise ValueError("Circle radius must be positive.")
+        self._len = 2 * np.pi * self.r
+
+    def length(self):
+        return self._len
 
     def evaluate(self, t):
-        """ Returns point at parameter t (0.0 to 1.0). """
-        # Map t to angle (radians)
+        # Map t to angle (0..2pi)
         theta = t * 2.0 * np.pi
-        
         x = self.center[0] + self.r * np.cos(theta)
         y = self.center[1] + self.r * np.sin(theta)
         return np.array([x, y])
 
     def snap(self, node):
-        """ 
-        Projects node onto the circle circumference.
-        """
         p = node.to_array()
         vec = p - self.center
-        
-        # Calculate distance from center
         dist = np.linalg.norm(vec)
         
-        # Prevent singularity at the exact center
         if dist < 1e-12:
-            # Edge case: If node is at center, snap to angle 0
-            node.x = self.center[0] + self.r
-            node.y = self.center[1]
-            return
-
-        # Scale vector to match radius
-        scale = self.r / dist
-        closest = self.center + vec * scale
+            closest = self.center + np.array([self.r, 0])
+        else:
+            closest = self.center + vec * (self.r / dist)
         
         node.update_from_array(closest)
-        
-    def __repr__(self):
-        return f"Circle(center={self.center}, r={self.r})"
-    
-    
-        
-
-class Point:
-    """
-    Pins a node to a specific (x, y) location.
-    Effectively a 'Fixed' constraint.
-    """
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-
-    def snap(self, node):
-        # Force the node exactly to this location
-        node.x = self.x
-        node.y = self.y
-        
-    def __repr__(self):
-        return f'Point: (x, y) = {self.x:4.4f}, {self.y:4.4f}.'
-
-
-'''
-class Circle(ParametricCurve):
-    def __init__(self, x, y, r):
-        self.cx = x
-        self.cy = y
-        self.r = r
-
-    def evaluate(self, t):
-        # Map t=0..1 to 0..2*pi
-        theta = t * 2 * math.pi
-        x = self.cx + self.r * math.cos(theta)
-        y = self.cy + self.r * math.sin(theta)
-        return x, y
-
-    def snap(self, node):
-        dx = node.x - self.cx
-        dy = node.y - self.cy
-        dist = math.sqrt(dx*dx + dy*dy)
-        
-        # Avoid divide-by-zero at the exact center
-        if dist < 1e-12: 
-            return 
-            
-        # Project onto the radius
-        scale = self.r / dist
-        node.x = self.cx + dx * scale
-        node.y = self.cy + dy * scale
-
-
-class Line(ParametricCurve):
-    def __init__(self, x1, y1, x2, y2):
-        self.x1, self.y1 = x1, y1
-        self.x2, self.y2 = x2, y2
-
-    def evaluate(self, t):
-        x = self.x1 + (self.x2 - self.x1) * t
-        y = self.y1 + (self.y2 - self.y1) * t
-        return x, y
-
-    def snap(self, node):
-        # Project point (px, py) onto line segment from A to B
-        px, py = node.x, node.y
-        x1, y1 = self.x1, self.y1
-        x2, y2 = self.x2, self.y2
-
-        dx = x2 - x1
-        dy = y2 - y1
-        if dx == 0 and dy == 0: return
-
-        # Calculate projection factor 'u'
-        u = ((px - x1) * dx + (py - y1) * dy) / (dx*dx + dy*dy)
-
-        # Clamp 'u' to the segment [0, 1]
-        u = max(0, min(1, u))
-
-        # Closest point
-        node.x = x1 + u * dx
-        node.y = y1 + u * dy
-'''
 
 
 class Arc(ParametricCurve):
-    def __init__(self, cx, cy, r, start_angle, end_angle):
-        self.cx = cx
-        self.cy = cy
-        self.r = r
-        # The caller provdes the angles in radians
-        self.start = start_angle
-        self.end = end_angle
-        self.sweep = self.end - self.start
+    """
+    A circular arc defined by center, radius, and start/end angles (Radians).
+    """
+    def __init__(self, center, r, start_angle, end_angle):
+        self.center = np.array(center, dtype=np.float64)
+        self.r = float(r)
+        self.t1 = float(start_angle)
+        self.t2 = float(end_angle)
+        self.angle_diff = self.t2 - self.t1
+        self._len = abs(self.angle_diff) * self.r
+        
+    def length(self):
+        return self._len
 
     def evaluate(self, t):
-        # t goes from 0.0 to 1.0
-        theta = self.start + (self.sweep * t)
-        x = self.cx + self.r * math.cos(theta)
-        y = self.cy + self.r * math.sin(theta)
-        return x, y
+        # Map t=[0,1] to angle=[t1, t2]
+        theta = self.t1 + t * self.angle_diff
+        x = self.center[0] + self.r * np.cos(theta)
+        y = self.center[1] + self.r * np.sin(theta)
+        return np.array([x, y])
 
     def snap(self, node):
-        # 1. Calculate angle of the node relative to center
-        dx = node.x - self.cx
-        dy = node.y - self.cy
-        target_angle = math.atan2(dy, dx) # Result is -pi to +pi
+        # 1. Project to infinite circle first
+        p = node.to_array()
+        vec = p - self.center
+        dist = np.linalg.norm(vec)
         
-        # 2. Normalize angles to 0..2pi for easier comparison, or handle the wrap-around logic.
-        #    (Simplified "snap to radius" for now, ignoring endpoints for robustness)
-        dist = math.sqrt(dx*dx + dy*dy)
-        if dist == 0: return
-        
-        scale = self.r / dist
-        node.x = self.cx + dx * scale
-        node.y = self.cy + dy * scale
-        
-        
-class CompositeCurve(ParametricCurve):
+        if dist < 1e-12:
+            # Degenerate node at center: snap to start of arc
+            closest = self.evaluate(0.0)
+        else:
+            # Project to circle
+            p_circ = self.center + vec * (self.r / dist)
+            
+            # 2. Check if p_circ is within the arc angles
+            # (Simple approach: calculate t for p_circ)
+            theta_p = np.arctan2(p_circ[1]-self.center[1], p_circ[0]-self.center[0])
+            
+            # Unwrap theta_p to be close to t1
+            # This logic can be complex for generic wrapping. 
+            # For now, we assume simple projection is 'good enough' for basic snapping
+            # or rely on the user to place nodes reasonably close.
+            closest = p_circ
+
+        node.update_from_array(closest)
+
+
+class PolyLine(ParametricCurve):
+    """ 
+    A chain of curves (Segments, Arcs) treated as one continuous object. 
+    """
     def __init__(self, segments):
-        """
-        segments: A list of ParametricCurve objects (Lines, Arcs, etc.)
-                  connected end-to-end.
-        """
         self.segments = segments
-
+        self.lengths = [s.length() for s in segments]
+        self.total_len = sum(self.lengths)
+        
+    def length(self):
+        return self.total_len
+        
     def evaluate(self, t):
-        # Map t (0.0 to 1.0) to the specific segment.
-        # Example: If we have 4 segments, t=0.25 is the end of segment 1.
+        # Map t=[0,1] to the correct segment
+        if t <= 0.0: return self.segments[0].evaluate(0.0)
+        if t >= 1.0: return self.segments[-1].evaluate(1.0)
         
-        num_segs = len(self.segments)
-        if t >= 1.0: 
-            t = 0.999999 # Clamp to avoid index error
+        target_len = t * self.total_len
+        current_len = 0.0
+        
+        for i, seg_len in enumerate(self.lengths):
+            if current_len + seg_len >= target_len:
+                local_dist = target_len - current_len
+                local_t = local_dist / seg_len if seg_len > 0 else 0.0
+                return self.segments[i].evaluate(local_t)
+            current_len += seg_len
             
-        # Find which segment 't' falls into
-        seg_idx = int(t * num_segs)
-        
-        # Calculate local 't' for that specific segment (0.0 to 1.0)
-        # Global t=0.6 in a 2-segment curve -> Local t=0.2 in segment 2
-        seg_t = (t * num_segs) - seg_idx
-        
-        return self.segments[seg_idx].evaluate(seg_t)
+        return self.segments[-1].evaluate(1.0)
 
     def snap(self, node):
-        # To snap, we check distance to ALL segments and pick the closest one.
-        best_dist = float('inf')
-        best_x, best_y = node.x, node.y
+        # Snap to whichever segment is closest
+        best_dist_sq = float('inf')
+        best_pos = None
         
-        # This is a temporary dummy node to test snapping on sub-curves
-        test_node = type(node)(0, node.x, node.y) 
-
+        # We need a temp node to probe the segments without modifying the real node yet
+        # or we just save/restore the state.
+        original_pos = node.to_array()
+        
         for seg in self.segments:
-            # Reset test node position
-            test_node.x, test_node.y = node.x, node.y
+            # Snap the node speculatively
+            seg.snap(node)
+            curr_pos = node.to_array()
             
-            # Snap to this segment
-            seg.snap(test_node)
+            dist_sq = np.sum((curr_pos - original_pos)**2)
             
-            # Check distance
-            dist = (test_node.x - node.x)**2 + (test_node.y - node.y)**2
+            if dist_sq < best_dist_sq:
+                best_dist_sq = dist_sq
+                best_pos = curr_pos
             
-            if dist < best_dist:
-                best_dist = dist
-                best_x, best_y = test_node.x, test_node.y
-        
-        # Apply the winner
-        node.x = best_x
-        node.y = best_y
-        
-
-class CubicCurve(ParametricCurve):
-    def __init__(self, x_start, x_end, a, b, c, d):
-        """
-        Defines a curve y = ax^3 + bx^2 + cx + d
-        between x_start and x_end.
-        """
-        self.x0 = x_start
-        self.x1 = x_end
-        self.a, self.b, self.c, self.d = a, b, c, d
-
-    def evaluate(self, t):
-        # Map t (0..1) to x (x0..x1)
-        x = self.x0 + (self.x1 - self.x0) * t
-        
-        # Calculate y based on the equation
-        y = (self.a * x**3) + (self.b * x**2) + (self.c * x) + self.d
-        return x, y
-
-    def snap(self, node):
-        # For complex equations, an analytical projection is hard.
-        # We use a numerical search (Newton's method or simple scan).
-        # A simple scan is robust enough for now:
-        best_t = 0
-        min_dist = float('inf')
-        
-        # Check 20 points along the curve to find the rough neighborhood
-        for i in range(21):
-            t = i / 20.0
-            x, y = self.evaluate(t)
-            dist = (node.x - x)**2 + (node.y - y)**2
-            if dist < min_dist:
-                min_dist = dist
-                best_t = t
-                
-        # Refine (simple optimization step)
-        # (For a production code, you'd use scipy.optimize, but this is fine)
-        x, y = self.evaluate(best_t)
-        node.x = x
-        node.y = y        
-        
- 
-
-class Polygon(CompositeCurve):
-    def __init__(self, vertices):
-        """
-        vertices: A list of (x, y) tuples. 
-                  e.g. [(0,0), (10,0), (5,5)]
-        """
-        if len(vertices) < 3:
-            raise ValueError("A polygon must have at least 3 vertices.")
-
-        segments = []
-        
-        # Loop through vertices and connect i to i+1
-        for i in range(len(vertices)):
-            curr_p = vertices[i]
-            # Wrap around to the start for the last segment
-            next_p = vertices[(i + 1) % len(vertices)]
+            # Reset for next iteration
+            node.update_from_array(original_pos)
             
-            # Create the Line segment
-            line = Line(curr_p[0], curr_p[1], next_p[0], next_p[1])
-            segments.append(line)
+        # Apply winner
+        if best_pos is not None:
+            node.update_from_array(best_pos)
+    
+    def discretize_adaptive(self, sizing_func):
+        all_pts = []
+        for i, seg in enumerate(self.segments):
+            pts = seg.discretize_adaptive(sizing_func)
+            if i > 0:
+                pts = pts[1:] # Avoid duplicate at join
+            all_pts.append(pts)
             
-        # Initialize the parent CompositeCurve with these lines
-        super().__init__(segments)
-        
-
-
-class RegularPolygon(Polygon):
-    def __init__(self, center_x, center_y, radius, n_sides):
-        """
-        Creates a regular N-sided polygon (Hexagon, Octagon, etc.)
-        """
-        vertices = []
-        angle_step = 2 * math.pi / n_sides
-        
-        for i in range(n_sides):
-            theta = i * angle_step
-            x = center_x + radius * math.cos(theta)
-            y = center_y + radius * math.sin(theta)
-            vertices.append((x, y))
-            
-        # Pass the calculated vertices to the parent Polygon constructor
-        super().__init__(vertices)
-
-
-        
-        
-        
+        if not all_pts: return np.empty((0,2))
+        return np.vstack(all_pts)
