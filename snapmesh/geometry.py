@@ -2,7 +2,7 @@
 snapmesh/geometry.py
 --------------------
 Defines geometric constraints.
-Nodes attached to these objects can 'snap' to them to maintain shape fidelity.
+UPDATED: Adds 'name' attribute for Boundary Condition tagging.
 """
 import numpy as np
 from abc import ABC, abstractmethod
@@ -14,31 +14,23 @@ TAG_CORNER = 1
 class GeometricConstraint(ABC):
     """ Abstract Base Class for all geometric constraints. """
     
+    def __init__(self, name="boundary"):
+        self.name = name
+    
     @abstractmethod
     def snap(self, node):
-        """ Modifies node.x and node.y in-place to lie on the curve. """
         pass
     
     @abstractmethod
     def evaluate(self, t):
-        """ Returns (x, y) at parameter t [0,1]. """
         pass
         
     @abstractmethod
     def length(self):
-        """ Returns total arc length. """
         pass
 
     def discretize(self, sizing_func, min_points=2):
-        """
-        Generates points along the curve based on local sizing.
-        Returns:
-            points: List of (x, y) tuples
-            tags:   List of flags (CORNER or SMOOTH)
-        """
         points = []
-        
-        # Start Point
         points.append(self.evaluate(0.0))
         
         L = self.length()
@@ -54,8 +46,6 @@ class GeometricConstraint(ABC):
         while t < 1.0:
             p_curr = self.evaluate(t)
             h_req = sizing_func(p_curr[0], p_curr[1])
-            
-            # 0.9 safety factor
             dt_req = (0.9 * h_req) / L
             dt = min(dt_req, max_dt)
             
@@ -66,12 +56,9 @@ class GeometricConstraint(ABC):
             it += 1
             if it > max_iter: break
             
-        # End Point
         points.append(self.evaluate(1.0))
-        
         pts_array = np.array(points)
         
-        # Default Tagging: Endpoints are Corners
         tags = np.full(len(pts_array), TAG_SMOOTH, dtype=int)
         tags[0] = TAG_CORNER
         tags[-1] = TAG_CORNER
@@ -79,7 +66,8 @@ class GeometricConstraint(ABC):
         return pts_array, tags
 
 class LineSegment(GeometricConstraint):
-    def __init__(self, p1, p2):
+    def __init__(self, p1, p2, name="boundary"):
+        super().__init__(name)
         self.p1 = np.array(p1, dtype=float)
         self.p2 = np.array(p2, dtype=float)
         self.vec = self.p2 - self.p1
@@ -103,8 +91,8 @@ class LineSegment(GeometricConstraint):
         node.update_from_array(closest)
 
 class Circle(GeometricConstraint):
-    """ A full 360-degree circle. """
-    def __init__(self, center, radius):
+    def __init__(self, center, radius, name="boundary"):
+        super().__init__(name)
         self.center = np.array(center, dtype=float)
         self.r = float(radius)
         self._len = 2 * np.pi * self.r
@@ -113,7 +101,6 @@ class Circle(GeometricConstraint):
         return self._len
 
     def evaluate(self, t):
-        # Map t=0..1 to 0..2pi
         theta = t * 2.0 * np.pi
         x = self.center[0] + self.r * np.cos(theta)
         y = self.center[1] + self.r * np.sin(theta)
@@ -124,14 +111,14 @@ class Circle(GeometricConstraint):
         vec = p - self.center
         dist = np.linalg.norm(vec)
         if dist < 1e-12:
-            # Degenerate: snap to arbitrary point
             closest = self.center + np.array([self.r, 0.0])
         else:
             closest = self.center + vec * (self.r / dist)
         node.update_from_array(closest)
 
 class Arc(GeometricConstraint):
-    def __init__(self, center, r, start_angle, end_angle):
+    def __init__(self, center, r, start_angle, end_angle, name="boundary"):
+        super().__init__(name)
         self.center = np.array(center, dtype=float)
         self.r = float(r)
         self.t1 = float(start_angle)
@@ -159,8 +146,8 @@ class Arc(GeometricConstraint):
         node.update_from_array(closest)
 
 class PolyLine(GeometricConstraint):
-    """ A chain of segments treated as one constraint. """
-    def __init__(self, segments):
+    def __init__(self, segments, name="boundary"):
+        super().__init__(name)
         self.segments = segments
         self.lengths = [s.length() for s in segments]
         self.total_len = sum(self.lengths)
@@ -199,10 +186,8 @@ class PolyLine(GeometricConstraint):
             node.update_from_array(best_pos)
             
     def discretize(self, sizing_func, min_points=2):
-        # PolyLine handles sub-segment corners
         all_pts = []
         all_tags = []
-        
         for i, seg in enumerate(self.segments):
             pts, tags = seg.discretize(sizing_func, min_points)
             if i > 0:
@@ -211,7 +196,6 @@ class PolyLine(GeometricConstraint):
             
             tags[0] = TAG_CORNER
             tags[-1] = TAG_CORNER
-            
             all_pts.append(pts)
             all_tags.append(tags)
             

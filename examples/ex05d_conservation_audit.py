@@ -13,11 +13,11 @@ from snapfvm.physics.euler import Euler2D
 
 def create_box_mesh():
     m = Mesh()
-    # 1x1 Box
-    l1 = LineSegment([0,0], [1,0]); m.add_curve(l1)
-    l2 = LineSegment([1,0], [1,1]); m.add_curve(l2)
-    l3 = LineSegment([1,1], [0,1]); m.add_curve(l3)
-    l4 = LineSegment([0,1], [0,0]); m.add_curve(l4)
+    # Tag them as "Wall"
+    l1 = LineSegment([0,0], [1,0], name="wall"); m.add_curve(l1)
+    l2 = LineSegment([1,0], [1,1], name="wall"); m.add_curve(l2)
+    l3 = LineSegment([1,1], [0,1], name="wall"); m.add_curve(l3)
+    l4 = LineSegment([0,1], [0,0], name="wall"); m.add_curve(l4)
     m.discretize_boundary(lambda x,y: 0.1)
     generate_unstructured_mesh(m, lambda x,y: 0.1, h_base=0.1, n_smooth=10)
     return m

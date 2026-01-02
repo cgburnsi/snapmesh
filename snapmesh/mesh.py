@@ -3,7 +3,7 @@ snapmesh/mesh.py
 ----------------
 The Manager. 
 Links Topology (Nodes) to Geometry (Constraints).
-UPDATED: Fixes add_cell() to automatically manage Edges.
+UPDATED: Implements Node Deduplication (Topological Merging).
 """
 import numpy as np
 from .elements import Node, Edge, Cell
@@ -16,11 +16,16 @@ class Mesh:
         self.edges = {}       # {id: Edge}
         self.cells = {}       # {id: Cell}
         
-        # Edge Uniqueness Lookup: (min_id, max_id) -> Edge Object
+        # Spatial Lookup for Deduplication
+        # Key: (round(x, 6), round(y, 6)) -> Node
+        self._coord_map = {}
+        self._merge_tol = 1e-6
+        
+        # Edge Uniqueness Lookup
         self._edge_lookup = {}
         
         # Geometry Registry
-        self.curves = []      # List of GeometricConstraint objects
+        self.curves = []
 
         # Counters
         self._next_node_id = 1
@@ -28,65 +33,75 @@ class Mesh:
         self._next_cell_id = 1
 
     def add_curve(self, curve_obj):
-        """ Registers a geometric boundary curve. """
         if not isinstance(curve_obj, GeometricConstraint):
             raise TypeError("Object must inherit from GeometricConstraint")
         self.curves.append(curve_obj)
 
     def discretize_boundary(self, sizing_func):
-        """
-        Generates boundary Nodes based on the registered Curves.
-        """
         boundary_nodes = []
-        
-        if not self.curves:
-            print("Warning: No curves registered in Mesh.")
-            return []
+        if not self.curves: return []
 
         print(f"Discretizing {len(self.curves)} curves...")
 
         for i, curve in enumerate(self.curves):
-            # 1. Ask curve for points
-            # Arcs generally need higher fidelity
             min_pts = 3
             if "Arc" in str(type(curve)): min_pts = 10
             
             pts, tags = curve.discretize(sizing_func, min_points=min_pts)
             
-            # 2. Convert to Nodes
-            # Chain logic: Skip first point if not the first curve
-            start_idx = 1 if i > 0 else 0
+            # Smart Loop Closure:
+            # If the last curve ended at X, and this curve starts at X,
+            # we want to ensure we pick up the same node.
             
-            for k in range(start_idx, len(pts)):
+            # We iterate ALL points. Our new add_node will handle the merging.
+            # However, we must be careful not to double-add the start point 
+            # if it was already added by the previous curve's end point.
+            
+            # Logic: Always add the first point.
+            # If it merges with previous curve's end, great.
+            
+            # Just add everything and let the Deduplicator handle it.
+            # But we typically skip the first point of subsequent curves 
+            # to avoid "logical" duplication in the list, even if IDs merge.
+            
+            start_k = 1 if i > 0 else 0
+            
+            for k in range(start_k, len(pts)):
                 x, y = pts[k]
                 tag = tags[k]
                 
                 n = self.add_node(x, y)
-                
-                # Link Node to Geometry
                 n.constraint = curve
-                
-                # Tag for generator
                 n.is_corner = (tag == TAG_CORNER)
-                
                 boundary_nodes.append(n)
+        
+        # Explicitly check loop closure (Last point vs First point)
+        # If the geometry is a closed loop, the last node added should merge with the first node.
+        # Our add_node does this automatically based on coordinates.
         
         return boundary_nodes
 
-    # --- Element Management ---
     def add_node(self, x, y):
+        """ Creates a node or returns an existing one if within tolerance. """
+        # Quantize coordinates for fuzzy matching
+        key = (round(x, 6), round(y, 6))
+        
+        if key in self._coord_map:
+            # Check exact distance to be sure
+            existing_node = self._coord_map[key]
+            dist = np.sqrt((x - existing_node.x)**2 + (y - existing_node.y)**2)
+            if dist < self._merge_tol:
+                return existing_node
+        
+        # Create new
         nid = self._next_node_id
         n = Node(nid, x, y)
         self.nodes[nid] = n
+        self._coord_map[key] = n
         self._next_node_id += 1
         return n
 
     def get_or_create_edge(self, n1, n2):
-        """ 
-        Returns an existing edge between n1 and n2, or creates a new one.
-        Ensures topological uniqueness (1-2 is same as 2-1).
-        """
-        # Sort IDs to create a unique key for undirected edge
         if n1.id < n2.id:
             key = (n1.id, n2.id)
         else:
@@ -104,17 +119,14 @@ class Mesh:
 
     def add_cell(self, n1_id, n2_id, n3_id):
         cid = self._next_cell_id
-        
         n1 = self.nodes[n1_id]
         n2 = self.nodes[n2_id]
         n3 = self.nodes[n3_id]
         
-        # Automatically find or create the required edges
         e1 = self.get_or_create_edge(n1, n2)
         e2 = self.get_or_create_edge(n2, n3)
         e3 = self.get_or_create_edge(n3, n1)
         
-        # Initialize Cell with full topology
         c = Cell(cid, n1, n2, n3, e1, e2, e3)
         self.cells[cid] = c
         self._next_cell_id += 1
