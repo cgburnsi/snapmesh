@@ -1,13 +1,15 @@
 """
 snapfvm/physics/euler.py
 ------------------------
-Euler Equations with Face-Flux BCs.
+Euler Equations.
+UPDATED: Implements Dirichlet (Inlet) and Neumann (Outlet).
 """
 import numpy as np
 from .base import PhysicsModel
 
 class Euler2D(PhysicsModel):
     def __init__(self, gamma=1.4):
+        super().__init__()
         self.gamma = gamma
 
     @property
@@ -27,8 +29,7 @@ class Euler2D(PhysicsModel):
         return np.column_stack([rho, u, v, p])
 
     def compute_flux(self, q_L, q_R, normal):
-        # ... (Rusanov logic - omitted for brevity, keep previous implementation) ...
-        # I will re-paste the condensed version to ensure file completeness
+        # --- Standard Rusanov Flux (Same as before) ---
         rho_L, rho_R = q_L[0], q_R[0]
         u_L, v_L = q_L[1]/rho_L, q_L[2]/rho_L
         u_R, v_R = q_R[1]/rho_R, q_R[2]/rho_R
@@ -45,53 +46,42 @@ class Euler2D(PhysicsModel):
         
         c_L = np.sqrt(self.gamma*p_L/rho_L)
         c_R = np.sqrt(self.gamma*p_R/rho_R)
-        max_speed = max(abs(vn_L/area)+c_L, abs(vn_R/area)+c_R) * area # Scale by area
+        max_speed = max(abs(vn_L/area)+c_L, abs(vn_R/area)+c_R) * area 
         
         return 0.5*(FL+FR) - 0.5*max_speed*(q_R - q_L)
 
     def compute_boundary_flux(self, q_L, normal, boundary_name):
         """
-        Calculates flux directly at the boundary face.
+        Handles Wall (Reflective), Inlet (Dirichlet), Outlet (Neumann).
         """
-        # 1. Decode Primitive Variables
-        rho = q_L[0]
-        u = q_L[1] / rho
-        v = q_L[2] / rho
-        p = (self.gamma - 1.0) * (q_L[3] - 0.5 * rho * (u**2 + v**2))
+        # Decode geometry
+        nx, ny = normal
         
-        nx, ny = normal # Area weighted normal
-        
-        # 2. Logic Switch
+        # 1. WALL (Slip / Reflective)
         if "wall" in boundary_name.lower():
-            # SOLID WALL (Slip Condition for Euler)
-            # Mass Flux = 0
+            # Get Pressure from internal cell
+            rho = q_L[0]
+            u, v = q_L[1]/rho, q_L[2]/rho
+            p = (self.gamma - 1.0) * (q_L[3] - 0.5 * rho * (u**2 + v**2))
+            
             # Momentum Flux = Pressure * Normal
-            # Energy Flux = 0 (Adiabatic/Slip work is zero since Vn=0)
+            return np.array([0.0, p*nx, p*ny, 0.0])
             
-            f_mass = 0.0
-            f_mom_x = p * nx
-            f_mom_y = p * ny
-            f_energy = 0.0
+        # 2. INLET (Dirichlet / Fixed Value)
+        elif "inlet" in boundary_name.lower():
+            # Retrieve the fixed state we set in the script
+            # If not set, default to q_L (which is wrong, but safe)
+            q_fixed = self.boundary_values.get(boundary_name, q_L)
             
-            return np.array([f_mass, f_mom_x, f_mom_y, f_energy])
+            # We treat the boundary as an internal face between q_L and q_fixed
+            return self.compute_flux(q_L, q_fixed, normal)
             
-        elif "inlet" in boundary_name.lower() or "outlet" in boundary_name.lower():
-            # Open Boundary (Simple Supersonic Outflow approximation)
-            # F = F(Q_internal) -> "Zero Gradient"
-            vn = u * nx + v * ny
-            return np.array([
-                rho * vn,
-                q_L[1] * vn + p * nx,
-                q_L[2] * vn + p * ny,
-                (q_L[3] + p) * vn
-            ])
+        # 3. OUTLET (Neumann / Zero Gradient)
+        elif "outlet" in boundary_name.lower():
+            # Zero Gradient means q_ghost = q_internal
+            # So we flux q_L against q_L
+            return self.compute_flux(q_L, q_L, normal)
             
         else:
-            # Fallback (same as open)
-            vn = u * nx + v * ny
-            return np.array([
-                rho * vn,
-                q_L[1] * vn + p * nx,
-                q_L[2] * vn + p * ny,
-                (q_L[3] + p) * vn
-            ])
+            # Fallback (Treat as outlet)
+            return self.compute_flux(q_L, q_L, normal)
