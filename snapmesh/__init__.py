@@ -6,8 +6,7 @@ __version__ = "1.0"
 from .elements import Node, Edge, Cell
 
 # Import Geometry
-from .geometry import LineSegment, Circle
-
+from .geometry import GeometricConstraint, LineSegment, Circle, Arc, PolyLine
 # Import Mesh Container
 from .mesh import Mesh
 

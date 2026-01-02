@@ -21,13 +21,14 @@ class Node:
             entity (e.g., a parametric Curve or Segment) that restricts this 
             node's position. Used to maintain shape fidelity during optimization.
     '''
-    __slots__ = ['id', 'x', 'y', 'constraint'] 
+    __slots__ = ['id', 'x', 'y', 'constraint', 'is_corner'] 
 
     def __init__(self, nid, x, y):
         self.id = int(nid)
         self.x  = float(x)
         self.y  = float(y)
-        self.constraint = None          
+        self.constraint = None
+        self.is_corner = False  # Topological flag
 
     def snap(self):
         ''' If Node is constrained, snap() moves the node to the closed point

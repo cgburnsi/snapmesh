@@ -2,167 +2,173 @@
 snapmesh/unstructured_gen.py
 ----------------------------
 Generates unstructured triangular meshes.
-Features:
-- Boolean Hole Logic
-- Auto-detected grid resolution (Fixes the "Fine Feature" bug)
-- Proximity Filtering
+UPDATED: Implements Adaptive Topology (Splitting) to fix density mismatches.
 """
 import numpy as np
 from scipy.spatial import Delaunay, cKDTree
 import matplotlib.path as mpath
 from snapmesh.mesh import Mesh
 
-def generate_unstructured_mesh(boundary_parts, sizing_func, h_base=0.1, n_smooth=20):
-    print(f"--- Unstructured Gen (h_base={h_base}) ---")
+def generate_unstructured_mesh(mesh_obj, sizing_func, h_base=0.1, n_smooth=80):
+    print(f"--- Unstructured Gen (Adaptive DistMesh) ---")
     
-    # 0. Normalize Input
-    if not isinstance(boundary_parts[0][0], (list, tuple, np.ndarray)):
-        polys = [np.array(boundary_parts)]
-    else:
-        polys = [np.array(p) for p in boundary_parts]
-        
-    # 1. Analyze Geometry
-    areas = []
-    for p in polys:
-        xmin, xmax = p[:,0].min(), p[:,0].max()
-        ymin, ymax = p[:,1].min(), p[:,1].max()
-        areas.append((xmax-xmin)*(ymax-ymin))
+    # 1. Extract Boundary
+    boundary_nodes = list(mesh_obj.nodes.values())
+    pts_boundary = np.array([[n.x, n.y] for n in boundary_nodes])
     
-    outer_idx = np.argmax(areas)
-    outer_poly = polys[outer_idx]
-    inner_polys = [p for i, p in enumerate(polys) if i != outer_idx]
+    # Identify Anchors (Corners)
+    locked_mask = np.array([getattr(n, 'is_corner', False) for n in boundary_nodes], dtype=bool)
+    print(f"   -> Locked {np.sum(locked_mask)} corner nodes.")
     
-    # 2. Build Paths
-    path_outer = mpath.Path(outer_poly)
-    paths_inner = [mpath.Path(p) for p in inner_polys]
-
-    # 3. Discretize Boundaries & DETECT H_MIN
-    fixed_nodes = []
-    detected_h_vals = []
+    path_outer = mpath.Path(pts_boundary)
     
-    for poly in polys:
-        n_pts = len(poly)
-        for i in range(n_pts):
-            p1 = poly[i]
-            p2 = poly[(i+1)%n_pts]
-            dist = np.linalg.norm(p2 - p1)
-            mid = (p1 + p2)/2
-            
-            local_h = sizing_func(mid[0], mid[1])
-            if local_h is None: local_h = h_base
-            
-            detected_h_vals.append(local_h) # Collect requested sizes
-            
-            n_sub = max(1, int(np.round(dist / local_h)))
-            for k in range(n_sub):
-                fixed_nodes.append(p1 + (k/n_sub)*(p2-p1))
+    # 2. Initial Interior Cloud
+    x_min, x_max = pts_boundary[:,0].min(), pts_boundary[:,0].max()
+    y_min, y_max = pts_boundary[:,1].min(), pts_boundary[:,1].max()
     
-    fixed_nodes = np.array(fixed_nodes)
-    
-    # --- AUTO-CALCULATE GRID RESOLUTION ---
-    # The grid must be finer than the smallest requested feature size.
-    # We use the 5th percentile to ignore outliers, or just min().
-    min_h_req = np.min(detected_h_vals) if detected_h_vals else h_base
-    
-    # Grid spacing should be ~70% of the smallest feature to ensure saturation
-    h_grid = min(h_base * 0.4, min_h_req * 0.7)
-    
-    print(f"   -> Detected min_h requirement: {min_h_req:.5f}")
-    print(f"   -> Setting background grid size: {h_grid:.5f}")
-    print(f"   -> Boundary Nodes: {len(fixed_nodes)}")
-
-    # 4. Fill Interior
-    x_min, x_max = outer_poly[:,0].min(), outer_poly[:,0].max()
-    y_min, y_max = outer_poly[:,1].min(), outer_poly[:,1].max()
+    detected_h = [sizing_func(p[0], p[1]) for p in pts_boundary]
+    # Start slightly denser to ensure coverage, let the springs handle spacing
+    h_grid = min(h_base, np.min(detected_h) * 0.75 if detected_h else h_base)
     
     xs = np.arange(x_min, x_max, h_grid)
     ys = np.arange(y_min, y_max, h_grid)
     xx, yy = np.meshgrid(xs, ys)
-    
-    xx += np.random.uniform(-h_grid*0.2, h_grid*0.2, xx.shape)
-    yy += np.random.uniform(-h_grid*0.2, h_grid*0.2, yy.shape)
+    xx[::2] += h_grid * 0.5 # Hex packing
     
     candidates = np.vstack([xx.ravel(), yy.ravel()]).T
-    
-    # A. Geometric Filter
     mask_keep = path_outer.contains_points(candidates)
-    for p_in in paths_inner:
-        mask_hole = p_in.contains_points(candidates, radius=-1e-9) 
-        mask_keep = mask_keep & (~mask_hole)
-    pts_geo = candidates[mask_keep]
+    candidates = candidates[mask_keep]
     
-    # B. Probability Filter
-    if len(pts_geo) > 0:
-        target_h = sizing_func(pts_geo[:,0], pts_geo[:,1])
+    # Filter candidates
+    if len(candidates) > 0:
+        # Probability filter
+        target_h = sizing_func(candidates[:,0], candidates[:,1])
         target_h = np.maximum(np.atleast_1d(target_h), 1e-9)
+        prob = np.clip((h_grid / target_h)**2, 0.0, 1.0)
+        candidates = candidates[np.random.random(len(candidates)) < prob]
         
-        # Now that h_grid is small, this probability function works correctly
-        prob = np.clip(1.3 * (h_grid / target_h)**2, 0.0, 1.0)
-        
-        mask_prob = np.random.random(len(pts_geo)) < prob
-        interior_nodes = pts_geo[mask_prob]
-        
-        # C. Proximity Filter
-        if len(interior_nodes) > 0 and len(fixed_nodes) > 0:
-            tree = cKDTree(fixed_nodes)
-            dist, _ = tree.query(interior_nodes)
-            survivor_h = sizing_func(interior_nodes[:,0], interior_nodes[:,1])
-            survivor_h = np.maximum(np.atleast_1d(survivor_h), 1e-9)
-            mask_far = dist > (0.6 * survivor_h)
-            interior_nodes = interior_nodes[mask_far]
-            
-    else:
-        interior_nodes = np.empty((0,2))
+        # Wall proximity filter
+        tree = cKDTree(pts_boundary)
+        dists, _ = tree.query(candidates)
+        candidates = candidates[dists > 0.6 * sizing_func(candidates[:,0], candidates[:,1])]
 
-    all_points = np.vstack([fixed_nodes, interior_nodes])
-    n_fixed = len(fixed_nodes)
+    all_points = np.vstack([pts_boundary, candidates])
+    n_fixed = len(pts_boundary)
     
-    # 5. Smoothing
-    print(f"   -> Smoothing ({n_smooth} iterations)...")
-    for _ in range(n_smooth):
+    full_locked_mask = np.zeros(len(all_points), dtype=bool)
+    full_locked_mask[:n_fixed] = locked_mask
+    
+    dt = 0.2
+    
+    # --- HELPER: Topology Mutation ---
+    def adapt_topology(points, edges, sizing_f):
+        # Calculate Edge Lengths
+        p0 = points[edges[:,0]]
+        p1 = points[edges[:,1]]
+        lengths = np.linalg.norm(p1 - p0, axis=1)
+        
+        # Get Target Lengths
+        mid = (p0 + p1) / 2.0
+        targets = sizing_f(mid[:,0], mid[:,1])
+        targets = np.maximum(np.atleast_1d(targets), 1e-9)
+        
+        # CRITERIA: Split if Length > 1.5 * Target
+        # (This fills gaps where triangles are stretched)
+        split_mask = lengths > 1.5 * targets
+        
+        new_nodes = []
+        if np.any(split_mask):
+            # Add midpoints
+            new_nodes = mid[split_mask]
+            
+        return new_nodes
+
+    print(f"   -> Smoothing & Adapting ({n_smooth} iterations)...")
+    
+    for i in range(n_smooth):
+        # A. Triangulate
         tri = Delaunay(all_points)
         centers = np.mean(all_points[tri.simplices], axis=1)
-        
         mask_good = path_outer.contains_points(centers)
-        for p_in in paths_inner:
-            mask_in = p_in.contains_points(centers, radius=-1e-9)
-            mask_good = mask_good & (~mask_in)
-        good_simplices = tri.simplices[mask_good]
+        good_simps = tri.simplices[mask_good]
         
-        neigh_sum = np.zeros_like(all_points)
-        neigh_cnt = np.zeros(len(all_points))
+        # B. Unique Edges
+        edges = np.vstack([
+            good_simps[:, [0,1]],
+            good_simps[:, [1,2]],
+            good_simps[:, [2,0]]
+        ])
+        edges.sort(axis=1)
+        edges = np.unique(edges, axis=0)
         
-        A, B, C = good_simplices[:,0], good_simplices[:,1], good_simplices[:,2]
-        np.add.at(neigh_sum, A, all_points[B] + all_points[C])
-        np.add.at(neigh_cnt, A, 2)
-        np.add.at(neigh_sum, B, all_points[A] + all_points[C])
-        np.add.at(neigh_cnt, B, 2)
-        np.add.at(neigh_sum, C, all_points[A] + all_points[B])
-        np.add.at(neigh_cnt, C, 2)
-        
-        mask_move = (neigh_cnt > 0)
-        mask_move[:n_fixed] = False
-        
-        avg = neigh_sum[mask_move] / neigh_cnt[mask_move][:,None]
-        all_points[mask_move] = 0.7 * all_points[mask_move] + 0.3 * avg
+        # --- ADAPTIVE STEP (Every 10 iters) ---
+        # We inject new nodes into the array if springs are over-stretched
+        if i > 0 and i % 10 == 0 and i < (n_smooth - 10):
+            new_pts = adapt_topology(all_points, edges, sizing_func)
+            if len(new_pts) > 0:
+                # print(f"      Iter {i}: Injected {len(new_pts)} nodes to fix gaps.")
+                # Append new points
+                all_points = np.vstack([all_points, new_pts])
+                # Update locked mask (new points are interior, so False)
+                full_locked_mask = np.append(full_locked_mask, np.zeros(len(new_pts), dtype=bool))
+                # Skip force calc this turn, re-triangulate next turn
+                continue
 
-    # 6. Final Export
+        # C. Spring Forces
+        p0 = all_points[edges[:,0]]
+        p1 = all_points[edges[:,1]]
+        vec = p1 - p0
+        L = np.linalg.norm(vec, axis=1)
+        L = np.maximum(L, 1e-12)
+        
+        mid = (p0 + p1) / 2.0
+        h_target = sizing_func(mid[:,0], mid[:,1])
+        h_target = np.maximum(np.atleast_1d(h_target), 1e-9)
+        
+        # F = L - target (Linear Spring)
+        force_mag = (L - h_target)
+        force_vec = vec * (force_mag / L)[:, None]
+        
+        deltas = np.zeros_like(all_points)
+        np.add.at(deltas, edges[:,0],  force_vec)
+        np.add.at(deltas, edges[:,1], -force_vec)
+        
+        # D. Move & Snap
+        mask_move = ~full_locked_mask
+        all_points[mask_move] += dt * deltas[mask_move]
+        
+        # Enforce Boundary Constraints
+        for k in range(n_fixed):
+            if not full_locked_mask[k]:
+                node = boundary_nodes[k]
+                # Update Node Object
+                node.x = all_points[k, 0]
+                node.y = all_points[k, 1]
+                
+                # Snap to Geometry
+                if node.constraint:
+                    node.snap()
+                
+                # Write back to array
+                all_points[k, 0] = node.x
+                all_points[k, 1] = node.y
+
+    # 5. Final Export
     tri = Delaunay(all_points)
     centers = np.mean(all_points[tri.simplices], axis=1)
-    
     mask_final = path_outer.contains_points(centers)
-    for p_in in paths_inner:
-        mask_in = p_in.contains_points(centers, radius=-1e-9)
-        mask_final = mask_final & (~mask_in)
-        
     final_tris = tri.simplices[mask_final]
     
-    mesh = Mesh()
+    # Map back to Mesh
     idx_map = {}
-    for i, pt in enumerate(all_points):
-        n = mesh.add_node(pt[0], pt[1])
-        idx_map[i] = n.id
-    for t in final_tris:
-        mesh.add_cell(idx_map[t[0]], idx_map[t[1]], idx_map[t[2]])
+    for i in range(n_fixed):
+        idx_map[i] = boundary_nodes[i].id
         
-    return mesh
+    for i in range(n_fixed, len(all_points)):
+        n = mesh_obj.add_node(all_points[i,0], all_points[i,1])
+        idx_map[i] = n.id
+        
+    for t in final_tris:
+        mesh_obj.add_cell(idx_map[t[0]], idx_map[t[1]], idx_map[t[2]])
+        
+    return mesh_obj
