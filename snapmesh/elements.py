@@ -64,12 +64,12 @@ class Edge:
             edges position. Used to maintain shape fidelity during optimization.
         cells (list): List of Cell objects sharing this edge [Owner, Neighbor].
     '''
-    __slots__ = ['id', 'node_a', 'node_b', 'is_boundary', 'bc_tag', 'constraint', 'cells']
+    __slots__ = ['id', 'n1', 'n2', 'is_boundary', 'bc_tag', 'constraint', 'cells']
 
-    def __init__(self, eid, node_a, node_b):
+    def __init__(self, eid, n1, n2):
         self.id = eid  
-        self.node_a = node_a
-        self.node_b = node_b
+        self.n1 = n1
+        self.n2 = n2
         
         self.is_boundary = False
         self.bc_tag = None
@@ -80,13 +80,13 @@ class Edge:
     @property
     def length(self):
         ''' Calculates Euclidean length of edge on the fly (numpy vectorized). '''
-        diff = self.node_b.to_array() - self.node_a.to_array()
+        diff = self.n2.to_array() - self.n1.to_array()
         return np.linalg.norm(diff)
 
     @property
     def midpoint(self):
         ''' Returns the (x, y) midpoint as a numpy array. '''
-        return 0.5 * (self.node_a.to_array() + self.node_b.to_array())
+        return 0.5 * (self.n1.to_array() + self.n2.to_array())
 
     @property
     def vector(self):
@@ -113,8 +113,8 @@ class Edge:
         return n
 
     def __repr__(self):
-        return (f'Edge(Node A ID: {self.node_a.id:3d}, '
-                f'Node B ID: {self.node_b.id:3d}, '
+        return (f'Edge(Node A ID: {self.n1.id:3d}, '
+                f'Node B ID: {self.n2.id:3d}, '
                 f'len = {self.length:10.3f})')
     
     

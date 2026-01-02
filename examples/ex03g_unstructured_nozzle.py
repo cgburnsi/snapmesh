@@ -89,7 +89,6 @@ def run():
     
     # Define Sizing
     h_base = 0.002 # 5mm
-    
     # 1. Setup Mesh & Geometry
     mesh = create_nozzle_mesh(h_target=h_base)
     

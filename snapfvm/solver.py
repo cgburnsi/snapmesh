@@ -1,3 +1,198 @@
+"""
+snapfvm/solver.py
+-----------------
+Generic Finite Volume Solver Engine.
+Features:
+ - Generic Physics Interface (Euler, Heat, etc.)
+ - Green-Gauss Gradient Reconstruction
+ - Strict Conservation Auditing (Mass Balance Warning)
+"""
+import numpy as np
+
+class FiniteVolumeSolver:
+    def __init__(self, grid, physics_model):
+        self.grid = grid
+        self.model = physics_model
+        
+        # 1. Allocate State [N_cells, N_vars]
+        self.q = np.zeros((grid.n_cells, self.model.num_variables), dtype=float)
+        
+        # 2. Allocate Gradients [N_cells, N_vars, 2] -> (dQ/dx, dQ/dy)
+        # We allocate this regardless, so it's ready when we need it.
+        self.grad_q = np.zeros((grid.n_cells, self.model.num_variables, 2), dtype=float)
+        
+        # Time Management
+        self.time = 0.0
+        self.iter = 0
+        self.total_mass_history = []
+        
+        print(f"--- FVM Solver Initialized ---")
+        print(f"   -> Physics: {self.model.__class__.__name__} ({self.model.num_variables} Eqns)")
+        print(f"   -> Gradients: Allocated (Green-Gauss)")
+
+    def set_initial_condition(self, q_init):
+        self.q[:] = q_init
+        # Record initial mass for the audit
+        mass = np.sum(self.q[:, 0] * self.grid.cell_volumes)
+        self.total_mass_history.append(mass)
+
+    def compute_gradients(self):
+        """
+        Green-Gauss Gradient Reconstruction.
+        Grad(Q) = (1/Vol) * Sum(Q_face * Normal_face)
+        """
+        self.grad_q.fill(0.0)
+        
+        for i in range(self.grid.n_faces):
+            c_left = self.grid.face_cells[i, 0]
+            c_right = self.grid.face_cells[i, 1]
+            normal = self.grid.face_normals[i] # [nx, ny] (scaled by area)
+            
+            # Reconstruct Face State (Simple Average)
+            q_L = self.q[c_left]
+            if c_right == -1:
+                q_R = q_L # Boundary: Zero Gradient assumption for reconstruction
+            else:
+                q_R = self.q[c_right]
+                
+            q_face = 0.5 * (q_L + q_R)
+            
+            # Accumulate contributions
+            # Normal points L -> R
+            # Contribution to Left Cell: +Q_face * Normal
+            # Contribution to Right Cell: -Q_face * Normal
+            
+            # We use outer product to handle N_vars
+            # q_face [4], normal [2] -> [4, 2]
+            term = np.outer(q_face, normal)
+            
+            self.grad_q[c_left] += term
+            if c_right != -1:
+                self.grad_q[c_right] -= term
+                
+        # Divide by Volume
+        for c in range(self.grid.n_cells):
+            self.grad_q[c] /= self.grid.cell_volumes[c]
+
+    def step(self, dt):
+        """
+        Performs one explicit time step.
+        Returns: max_residual
+        """
+        n_vars = self.model.num_variables
+        residuals = np.zeros((self.grid.n_cells, n_vars), dtype=float)
+        net_boundary_flux = np.zeros(n_vars, dtype=float)
+
+        # 1. Compute Gradients (if Physics Model needs them)
+        if self.model.has_viscous_terms:
+            self.compute_gradients()
+
+        # 2. FLUX LOOP
+        for i in range(self.grid.n_faces):
+            c_left = self.grid.face_cells[i, 0]
+            c_right = self.grid.face_cells[i, 1]
+            normal = self.grid.face_normals[i]
+
+            # A. Get States
+            q_L = self.q[c_left]
+            if c_right == -1:
+                q_R = q_L.copy() # Simple transmissive BC for now
+            else:
+                q_R = self.q[c_right]
+            
+            # B. Compute Flux (Physics Abstraction)
+            flux = self.model.compute_flux(q_L, q_R, normal)
+            
+            # C. Add Viscous Flux (if needed)
+            if self.model.has_viscous_terms:
+                g_L = self.grad_q[c_left]
+                g_R = self.grad_q[c_left] if c_right == -1 else self.grad_q[c_right]
+                flux -= self.model.compute_viscous_flux(q_L, q_R, g_L, g_R, normal)
+
+            # D. Update Residuals
+            residuals[c_left] -= flux
+            if c_right != -1:
+                residuals[c_right] += flux
+            else:
+                net_boundary_flux += flux
+
+        # 3. UPDATE STATE
+        d_q = (dt / self.grid.cell_volumes[:, None]) * residuals
+        self.q += d_q
+        
+        # 4. CONSERVATION AUDIT
+        # Check Mass (Variable 0)
+        current_mass = np.sum(self.q[:, 0] * self.grid.cell_volumes)
+        prev_mass = self.total_mass_history[-1]
+        
+        mass_change = current_mass - prev_mass
+        boundary_loss = np.sum(net_boundary_flux[0]) * dt
+        
+        balance_error = mass_change + boundary_loss
+        
+        if abs(balance_error) > 1e-10:
+             print(f"[!] AUDIT WARNING (Iter {self.iter}): Mass Imbalance = {balance_error:.2e}")
+        
+        self.total_mass_history.append(current_mass)
+        self.time += dt
+        self.iter += 1
+        
+        return np.max(np.abs(residuals))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+'''  The following is the original solver code.  It is for reference only now.
+
+
 import numpy as np
 
 class EulerSolver:
@@ -450,3 +645,14 @@ class EulerSolver:
         f.rhoE += factor * d_rhoE
         
         f.primitives_from_conservatives()
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+'''
