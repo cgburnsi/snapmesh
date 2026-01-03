@@ -7,7 +7,7 @@ import snapmesh as sm
 from snapmesh.transfinite import generate_structured_mesh
 import snapfvm.grid as fvm
 import snapfvm.field as flow
-import unit_convert as cv
+import snapcore.units as cv
 
 # --- 1. Geometry & Mesh Generation ---
 def create_structured_nozzle():
@@ -15,12 +15,12 @@ def create_structured_nozzle():
     Defines the nozzle geometry and generates a structured mesh.
     """
     # Define Parameters
-    xi  = cv.convert(0.31, 'inch', 'm')
-    ri  = cv.convert(2.50, 'inch', 'm')
-    rci = cv.convert(0.80, 'inch', 'm')
-    rt  = cv.convert(0.80, 'inch', 'm')
-    rct = cv.convert(0.50, 'inch', 'm')
-    xe  = cv.convert(4.05, 'inch', 'm')
+    xi  = snapcore.units.convert(0.31, 'inch', 'm')
+    ri  = snapcore.units.convert(2.50, 'inch', 'm')
+    rci = snapcore.units.convert(0.80, 'inch', 'm')
+    rt  = snapcore.units.convert(0.80, 'inch', 'm')
+    rct = snapcore.units.convert(0.50, 'inch', 'm')
+    xe  = snapcore.units.convert(4.05, 'inch', 'm')
     ani = np.deg2rad(44.88)
     ane = np.deg2rad(15.0)
 
@@ -95,9 +95,9 @@ def setup_simulation():
     
     # 4. Set Initial Conditions
     # Standard Sea Level Inlet -> Vacuum Exit
-    p_inlet = cv.convert(70, 'psi', 'Pa') 
-    p_exit  = cv.convert(14.7, 'psi', 'Pa')
-    T_total = cv.convert(80, 'degF', 'K')
+    p_inlet = snapcore.units.convert(70, 'psi', 'Pa') 
+    p_exit  = snapcore.units.convert(14.7, 'psi', 'Pa')
+    T_total = snapcore.units.convert(80, 'degF', 'K')
     
     # Linear ramp based on x-coordinate
     x = grid.cell_centers_x

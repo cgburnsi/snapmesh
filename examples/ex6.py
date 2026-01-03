@@ -1,5 +1,5 @@
 import numpy as np
-import unit_convert as cv
+import snapcore.units as cv
 import math
 import snapmesh as sm
 import matplotlib.pyplot as plt
@@ -11,12 +11,12 @@ def inches_to_meters(inches):
 def create_100mN_nozzle():
     
     # Specify Geometry Points
-    xi  = cv.convert(0.31, 'inch', 'm')         # [m] Axial (x-axis) location of nozzle inlet
-    ri  = cv.convert(2.50, 'inch', 'm')         # [m] Radial (y-axis) location of nozzle inlet
-    rci = cv.convert(0.80, 'inch', 'm')         # [m] Radius of curvature of Nozzle Contraction
-    rt  = cv.convert(0.80, 'inch', 'm')         # [m] Radial (y-axis) location of nozzle throat
-    rct = cv.convert(0.50, 'inch', 'm')         # [m] Radius of Curvature of nozzle throat exit
-    xe  = cv.convert(4.05, 'inch', 'm')         # [m] Axial (x-axis) location of nozzle exit
+    xi  = snapcore.units.convert(0.31, 'inch', 'm')         # [m] Axial (x-axis) location of nozzle inlet
+    ri  = snapcore.units.convert(2.50, 'inch', 'm')         # [m] Radial (y-axis) location of nozzle inlet
+    rci = snapcore.units.convert(0.80, 'inch', 'm')         # [m] Radius of curvature of Nozzle Contraction
+    rt  = snapcore.units.convert(0.80, 'inch', 'm')         # [m] Radial (y-axis) location of nozzle throat
+    rct = snapcore.units.convert(0.50, 'inch', 'm')         # [m] Radius of Curvature of nozzle throat exit
+    xe  = snapcore.units.convert(4.05, 'inch', 'm')         # [m] Axial (x-axis) location of nozzle exit
     
     # Specify Nozzle Angles
     ani = np.deg2rad(44.88)                     # [rad] Nozzle Contraction Angle

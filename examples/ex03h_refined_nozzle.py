@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 # Project Imports
 from snapmesh.unstructured_gen import generate_unstructured_mesh
 from snapmesh.quality import MeshQuality
-import unit_convert as cv
+import snapcore.units as cv
 
 # --- 1. Sizing Function Setup (TUNED) ---
 def create_nozzle_sizing(x_throat, r_throat):
@@ -84,12 +84,12 @@ def get_refined_boundary(sizing_func):
     Reconstructs the nozzle boundary.
     """
     # --- Define Parameters ---
-    xi  = cv.convert(0.31, 'inch', 'm')
-    ri  = cv.convert(2.50, 'inch', 'm')
-    rci = cv.convert(0.80, 'inch', 'm')
-    rt  = cv.convert(0.80, 'inch', 'm')
-    rct = cv.convert(0.50, 'inch', 'm')
-    xe  = cv.convert(4.05, 'inch', 'm')
+    xi  = snapcore.units.convert(0.31, 'inch', 'm')
+    ri  = snapcore.units.convert(2.50, 'inch', 'm')
+    rci = snapcore.units.convert(0.80, 'inch', 'm')
+    rt  = snapcore.units.convert(0.80, 'inch', 'm')
+    rct = snapcore.units.convert(0.50, 'inch', 'm')
+    xe  = snapcore.units.convert(4.05, 'inch', 'm')
     
     ani = np.deg2rad(44.88)
     ane = np.deg2rad(15.0)
@@ -166,14 +166,14 @@ def run():
     print("--- Refined Nozzle Generation (Tuned) ---")
     
     # 1. Define Sizing Logic
-    xi  = cv.convert(0.31, 'inch', 'm')
-    rci = cv.convert(0.80, 'inch', 'm')
-    rt  = cv.convert(0.80, 'inch', 'm')
-    rct = cv.convert(0.50, 'inch', 'm')
+    xi  = snapcore.units.convert(0.31, 'inch', 'm')
+    rci = snapcore.units.convert(0.80, 'inch', 'm')
+    rt  = snapcore.units.convert(0.80, 'inch', 'm')
+    rct = snapcore.units.convert(0.50, 'inch', 'm')
     ani = np.deg2rad(44.88)
     
     xtan = xi + rci * np.sin(ani)
-    rtan = cv.convert(2.50, 'inch', 'm') + rci * (np.cos(ani) - 1.0)
+    rtan = snapcore.units.convert(2.50, 'inch', 'm') + rci * (np.cos(ani) - 1.0)
     rt1 = rt - rct * (np.cos(ani) - 1.0)
     xt1 = xtan + (rtan - rt1) / np.tan(ani)
     xt_approx = xt1 + rct * np.sin(ani)

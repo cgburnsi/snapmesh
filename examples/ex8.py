@@ -1,4 +1,4 @@
-import unit_convert as cv
+import snapcore.units as cv
 import numpy as np
 import snapmesh as sm
 from snapmesh.transfinite import generate_structured_mesh
@@ -6,12 +6,12 @@ import matplotlib.pyplot as plt
 
 def create_structured_nozzle():
     # --- 1. Define Parameters (Same as before) ---
-    xi  = cv.convert(0.31, 'inch', 'm')
-    ri  = cv.convert(2.50, 'inch', 'm')
-    rci = cv.convert(0.80, 'inch', 'm')
-    rt  = cv.convert(0.80, 'inch', 'm')
-    rct = cv.convert(0.50, 'inch', 'm')
-    xe  = cv.convert(4.05, 'inch', 'm')
+    xi  = snapcore.units.convert(0.31, 'inch', 'm')
+    ri  = snapcore.units.convert(2.50, 'inch', 'm')
+    rci = snapcore.units.convert(0.80, 'inch', 'm')
+    rt  = snapcore.units.convert(0.80, 'inch', 'm')
+    rct = snapcore.units.convert(0.50, 'inch', 'm')
+    xe  = snapcore.units.convert(4.05, 'inch', 'm')
     ani = np.deg2rad(44.88)
     ane = np.deg2rad(15.0)
 

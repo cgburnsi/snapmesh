@@ -3,33 +3,29 @@ ex10b_rocket_nozzle.py
 ----------------------
 Compressible Flow Application: DeLaval Nozzle.
 Config: Euler 2D | Second-Order | Stagnation Inlet.
-
-This example demonstrates a full "Engineering" simulation:
-1. Generates a geometry-constrained unstructured mesh.
-2. Applies 2nd-order Flux Reconstruction for accuracy.
-3. Uses characteristic-based boundary conditions (Subsonic Inlet).
-4. Validates stability with a dynamic CFL ramp.
 """
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
 # --- HARD RESET ---
-modules_to_kill = ['snapfvm.numerics', 'snapfvm.solver', 'snapfvm.physics.euler', 'snapfvm.display']
+modules_to_kill = ['snapfvm.numerics', 'snapfvm.solver', 'snapfvm.physics.euler', 'snapfvm.display', 'snapcore.units']
 for mod in modules_to_kill:
     if mod in sys.modules:
         del sys.modules[mod]
 
-import unit_convert as cv
+# --- IMPORTS ---
+import snapcore.units as cv               # <--- FIXED IMPORT
+from snapcore.display import SimulationDisplay
 from snapmesh.mesh import Mesh
 from snapmesh.geometry import LineSegment, Arc
 from snapmesh.unstructured_gen import generate_unstructured_mesh
 from snapfvm.grid import Grid
 from snapfvm.solver import FiniteVolumeSolver
 from snapfvm.physics.euler import Euler2D
-from snapfvm.display import SimulationDisplay
 
 # --- GEOMETRY DEFINITION ---
+# Uses 'cv.convert' consistently now
 xi  = cv.convert(0.31, 'inch', 'm')
 ri  = cv.convert(2.50, 'inch', 'm')
 rci = cv.convert(0.80, 'inch', 'm')
@@ -111,17 +107,14 @@ def compute_dt(grid, solver, cfl=0.4):
 
 # --- MAIN EXECUTION ---
 def run():
-    # 1. Init
     disp = SimulationDisplay("Rocket Nozzle Simulation", "Euler 2D | Order=2 | Stagnation Inlet")
     disp.header()
     
-    # 2. Mesh
     disp.section("Mesh Generation")
     mesh = create_nozzle_mesh()
     grid = Grid(mesh)
     print(f"   -> Generated {grid.n_cells} unstructured cells")
     
-    # 3. Solver
     model = Euler2D(gamma=1.4)
     p0 = 100000.0; rho0 = 1.2
     
@@ -132,7 +125,6 @@ def run():
     inlet_group_id = [gid for gid, name in grid.group_names.items() if name == "inlet"][0]
     inlet_faces = np.where(grid.face_groups == inlet_group_id)[0]
     
-    # 4. Loop
     disp.section("Time Integration")
     disp.setup_stats_columns(["Iter", "Time [ms]", "dt", "Resid", "Max(u+c)"], [6, 12, 10, 10, 10])
     
@@ -161,7 +153,6 @@ def run():
             
     disp.success()
 
-    # 5. Visualize
     disp.section("Visualization")
     mask = np.abs(grid.cell_centers[:, 1]) < 0.005
     sim_x = grid.cell_centers[mask, 0]
@@ -176,7 +167,6 @@ def run():
     idx = np.argsort(sim_x)
     sim_x = sim_x[idx]; sim_mach = sim_mach[idx]
     
-    # Simple Plot
     plt.figure(figsize=(10, 6))
     plt.plot(sim_x, sim_mach, 'r.', label="CFD (Euler 2nd Order)")
     plt.title("Nozzle Validation (Order=2)")

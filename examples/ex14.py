@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import snapmesh.unstructured_gen as umesh # The file above
-import unit_convert as cv
+import snapcore.units as cv
 
 def nozzle_sizing_function(x, y):
     """
