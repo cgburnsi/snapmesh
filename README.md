@@ -17,7 +17,7 @@ This project is built from the ground up to be readable and educational. It avoi
 
 ## Examples Guide
 
-The `examples/` directory contains a progression from basic Python setup to full CFD simulation. Files are numbered by category.
+The `examples/` directory contains a progression from basic Python setup to full multi-physics simulations. Files are numbered by category.
 
 ### 01. Preliminaries (`ex01_...`)
 * **Goal:** Verify the environment and understand basic tools.
@@ -55,8 +55,34 @@ The `examples/` directory contains a progression from basic Python setup to full
 * `ex06b_connectivity.py`: Visualizing neighbor connections (Face-to-Cell).
 * `ex06c_flux_kernels.py`: Unit testing the numerical flux functions (Numba).
 
-### 07. Compressible Flow Applications (`ex07_...`)
-* **Goal:** Full CFD Simulations.
-* `ex07a_supersonic_bump.py`: Mach 1.5 flow over a circular arc (Shock capturing).
-* `ex07b_rocket_nozzle.py`: Choked flow simulation in a DeLaval nozzle.
-* `ex07c_nozzle_validation.py`: Comparing CFD results against 1D Isentropic Theory.
+### 07. Incompressible Flow (`ex07_...`)
+* **Goal:** Solving for Pressure and Velocity (Low Speed).
+* *(Planned)* `ex07a_poiseuille_channel.py`: Laminar flow in a pipe (Parabolic profile validation).
+* *(Planned)* `ex07b_lid_driven_cavity.py`: The classic CFD benchmark.
+
+### 08. Viscous & Turbulent Flow (`ex08_...`)
+* **Goal:** Adding diffusion and turbulence models.
+* *(Planned)* `ex08a_viscous_cylinder.py`: Flow separation behind a cylinder.
+* *(Planned)* `ex08b_spalart_allmaras.py`: Implementing a 1-equation turbulence model.
+
+### 09. Compressible Flow (`ex09_...`)
+* **Goal:** Solving Euler Equations (High Speed, Shock Waves).
+* *(Planned)* `ex09a_sod_shock_tube.py`: 1D Riemann problem validation.
+* *(Planned)* `ex09b_supersonic_wedge.py`: Oblique shock capture.
+
+### 10. Applied Aerospace (`ex10_...`)
+* **Goal:** Full system simulations.
+* `ex10a_supersonic_bump.py`: Mach 1.5 flow over a circular arc.
+* `ex10b_rocket_nozzle.py`: Choked flow simulation in a DeLaval nozzle.
+* `ex10c_nozzle_validation.py`: Comparing CFD results against 1D Isentropic Theory.
+
+### 11. Scalar Transport & Thermodynamics (`ex11_...`)
+* **Goal:** Moving beyond pure fluid dynamics.
+* *(Planned)* `ex11a_passive_scalar.py`: Convection-Diffusion of a tracer dye.
+* *(Planned)* `ex11b_heated_plate.py`: Solving the Energy Equation with thermal conduction.
+
+### 12. Reacting Flows & Porous Media (`ex12_...`)
+* **Goal:** Chemical Reactors and Catalyst Beds.
+* *(Planned)* `ex12a_darcy_flow.py`: Flow through a porous block (Pressure drop model).
+* *(Planned)* `ex12b_surface_reaction.py`: Simple A -> B reaction on a catalytic wall.
+* *(Planned)* `ex12c_packed_bed_reactor.py`: Full simulation of a catalytic converter bed (Flow + Heat + Reaction).
